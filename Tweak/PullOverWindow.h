@@ -17,4 +17,5 @@
 + (id)sharedWindow;
 - (void)applySettings;   // rebuild the drawer from the current settings
 
+- (void)attachSceneIfNeeded;
 @end

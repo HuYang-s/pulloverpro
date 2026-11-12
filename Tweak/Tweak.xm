@@ -9,8 +9,36 @@
 #import "headers.h"
 #import "PullOverWindow.h"
 #import "POApplicationHelper.h"
+#import "POLog.h"
+#import <notify.h>
+#import <objc/runtime.h>
 
 static PullOverWindow *window;
+
+// The drawer shows only while the phone is unlocked: SpringBoard's lock state aggregator says 0. The system
+// lock notification is the answer only where the aggregator is missing; otherwise it is one more moment to
+// look again (it reads "unlocked" while the Lock Screen is still up after Face ID, so it cannot decide alone).
+// 3.0.0 started invisible and only looked when the aggregator changed, so a phone where that change did not
+// arrive after a respring, or whose scene connected late, never showed the handle (issue #1).
+static int POLockToken = NOTIFY_TOKEN_INVALID;
+
+static BOOL POUnlocked(void) {
+    Class cls = objc_getClass("SBLockStateAggregator");
+    SBLockStateAggregator *aggregator = [cls respondsToSelector:@selector(sharedInstance)] ? [cls sharedInstance] : nil;
+    if ([aggregator respondsToSelector:@selector(lockState)]) return [aggregator lockState] == 0;
+    uint64_t state = 1;
+    if (notify_is_valid_token(POLockToken) && notify_get_state(POLockToken, &state) == NOTIFY_STATUS_OK) return state == 0;
+    return YES; // nothing to ask: show it, as a hidden handle is the worse failure
+}
+
+static void POUpdateVisibility(void) {
+    if (!window) return;
+    [window attachSceneIfNeeded];
+    CGFloat alpha = POUnlocked() ? 1 : 0;
+    POLog(@"visibility: unlocked=%d scene=%d hidden=%d alpha %.0f -> %.0f", (int)alpha, window.windowScene != nil, window.hidden, window.alpha, alpha);
+    if (window.alpha == alpha) return;
+    [UIView animateWithDuration:0.2 animations:^{ window.alpha = alpha; }];
+}
 
 @interface SpringBoard (PullOver)
 - (void)addActiveOrientationObserver:(id)observer;
@@ -50,9 +78,11 @@ static void POPrefsChanged(CFNotificationCenterRef center, void *observer, CFStr
         BOOL enabled = [[POApplicationHelper settings][@"enabled"] boolValue];
         if (enabled && !window) {
             window = [PullOverWindow sharedWindow];
+            window.alpha = 0;
             [window makeKeyAndVisible];
         }
         [window applySettings];
+        POUpdateVisibility();
     });
 }
 
@@ -91,6 +121,12 @@ static void POCommand(CFNotificationCenterRef center, void *observer, CFStringRe
     window.alpha = 0;
     [window makeKeyAndVisible];
     [window applySettings];
+    // Work out visibility now and again shortly after: SpringBoard is still starting, and neither the lock
+    // state nor the window scene is guaranteed to be settled at this point.
+    POUpdateVisibility();
+    for (NSNumber *delay in @[@1, @3, @8]) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay.doubleValue * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ POUpdateVisibility(); });
+    }
 
     // Orientation: SpringBoard's own observer list (same API on iOS 15-27)
     // instead of hooking noteInterfaceOrientationChanged:, which iOS 27 dropped.
@@ -192,15 +228,14 @@ static void POCommand(CFNotificationCenterRef center, void *observer, CFStringRe
 %hook SBLockStateAggregator
 -(void)_updateLockState{
     %orig;
-    if (!window) return;
-    unsigned long long state = [self respondsToSelector:@selector(lockState)] ? [self lockState] : 0;
-    [UIView animateWithDuration:0.2 animations:^{
-        window.alpha = (state == 0) ? 1 : 0;
-    }];
+    POUpdateVisibility();
 }
 %end
 
 %ctor {
+    notify_register_dispatch("com.apple.springboard.lockstate", &POLockToken, dispatch_get_main_queue(), ^(int token) { POUpdateVisibility(); });
+    [[NSNotificationCenter defaultCenter] addObserverForName:UISceneDidActivateNotification object:nil queue:[NSOperationQueue mainQueue]
+                                                  usingBlock:^(NSNotification *note) { POUpdateVisibility(); }];
     CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, POPrefsChanged,
                                     CFSTR(POPrefsChangedNotification), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
     for (NSString *name in @[@POOpenNotification, @POCloseNotification, @POToggleNotification]) {

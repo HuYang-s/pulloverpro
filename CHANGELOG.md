@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.0.1
+
+- **Fixed:** on some phones the handle never appeared after a respring until the phone was locked and unlocked again. PullOver Pro now checks whether the phone is unlocked as it starts, not only when that changes. Reported on an iPhone 13 Pro on iOS 17 ([#1](https://github.com/Jond-ie/pulloverpro/issues/1)).
+
 ## 3.0.0
 
 Out of beta. For iOS 15 to 27 on Rootless and RootHide jailbreaks.

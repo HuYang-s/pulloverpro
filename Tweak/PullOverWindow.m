@@ -30,17 +30,26 @@
         self.rootViewController = controller = [[PullOverViewController alloc] init];
         self.userInteractionEnabled = YES;
         self.backgroundColor = [UIColor clearColor];
-        // iOS 13+: a window needs a scene to show up. Use SpringBoard's main display scene.
-        if (@available(iOS 13, *)) {
-            for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
-                if ([scene isKindOfClass:[UIWindowScene class]] && ((UIWindowScene *)scene).screen == [UIScreen mainScreen]) {
-                    self.windowScene = (UIWindowScene *)scene;
-                    break;
-                }
-            }
-        }
+        [self attachSceneIfNeeded];
     }
     return self;
+}
+
+// A window needs a scene to show up: use SpringBoard's main display scene. If SpringBoard has not connected
+// it yet when the tweak starts, the window stays invisible, so this is called again each time visibility is
+// worked out (unlock, scene activation) until it has one.
+- (void)attachSceneIfNeeded {
+    if (self.windowScene) return;
+    UIWindowScene *fallback = nil;
+    for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
+        if (![scene isKindOfClass:[UIWindowScene class]]) continue;
+        if (((UIWindowScene *)scene).screen == [UIScreen mainScreen]) { fallback = (UIWindowScene *)scene; break; }
+        if (!fallback) fallback = (UIWindowScene *)scene;
+    }
+    if (fallback) {
+        self.windowScene = fallback;
+        if (!self.hidden) [self makeKeyAndVisible];
+    }
 }
 
 - (void)applySettings{
