@@ -2,7 +2,7 @@
 
 Pull over any app, anywhere.
 
-![PullOver Pro on an iPhone 11 Pro, iOS 27.2.1](screenshots/promo.png)
+![PullOver Pro on an iPhone 11 Pro, iOS 27.2.1: apps pulled over from the handle](screenshots/promo.gif)
 
 - **Pull the handle** at the edge of the screen and your app slides in over the one you are using, still live. Push it back to tuck it away.
 - **QuickSwitch:** long-press the handle to pick from your recent apps or favorites. Tap one to pull it over, or drag it to the middle to open it full screen.
