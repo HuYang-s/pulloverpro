@@ -169,6 +169,14 @@ static bool showingCantHost = NO;
     
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(keyboardWillShow:) name:UIKeyboardWillShowNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(keyboardWillHide:) name:UIKeyboardWillHideNotification object:nil];
+    [self updateHandleVisibility:0];
+}
+
+// Hide Handle (needs the Triggr add-on): invisible while closed, so it also takes
+// no touches; fades in as an app is pulled over, so it can still be closed by hand.
+-(void)updateHandleVisibility:(float)progress{
+    BOOL hide = [[POApplicationHelper settings][@"hideHandle"] boolValue] && POTriggrAddonInstalled();
+    self.handle.alpha = hide ? MAX(0, MIN(1, progress * 4)) : 1;
 }
 
 -(void)viewDidLayoutSubviews{
@@ -394,6 +402,7 @@ static NSNumber *origOffset = nil;
     
     if (sv == scrollView) {
         self.backgroundView.alpha = progress;
+        [self updateHandleVisibility:progress];
         
         if (progress == 0) {
             self.isOpened = NO;

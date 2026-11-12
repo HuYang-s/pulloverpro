@@ -22,6 +22,7 @@
 -(void)open;
 -(void)close;
 -(void)endHosting;
+-(void)updateHandleVisibility:(float)progress;
 @property (nonatomic) BOOL isOpened;
 
 @property (nonatomic, strong) UIScrollView *scrollView;

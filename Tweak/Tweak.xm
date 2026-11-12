@@ -173,6 +173,22 @@ static void POCommand(CFNotificationCenterRef center, void *observer, CFStringRe
 }
 %end
 
+// Control Center or Notification Center closes the drawer as soon as it STARTS
+// coming down, not after. Both methods exist on iOS 15-27 (checked against 15.8.6 to 27.0.1).
+%hook SBControlCenterController
+- (void)_willPresent {
+    if ([window.controller isOpened]) [window.controller close];
+    %orig;
+}
+%end
+
+%hook SBCoverSheetPresentationManager
+- (void)_prepareForPresentationTransitionForUserGesture:(BOOL)gesture {
+    if ([window.controller isOpened]) [window.controller close];
+    %orig;
+}
+%end
+
 %hook SBLockStateAggregator
 -(void)_updateLockState{
     %orig;

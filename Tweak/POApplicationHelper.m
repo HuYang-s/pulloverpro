@@ -86,6 +86,7 @@ static NSDictionary *POCachedSettings;
         @"hideLabels": @NO,
         @"hapticFeedback": @YES,
         @"closeOnHome": @YES,
+        @"hideHandle": @NO,
         @"keyboardAvoiding": @NO,
         @"externalKeyboard": @NO,
         @"autoNub": @NO,

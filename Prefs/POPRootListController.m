@@ -1,9 +1,10 @@
-// PullOver Pro (rootless) settings.
+// PullOver Pro settings.
 // Values go through CFPreferences (what the tweak reads) and every change
 // posts a Darwin notification so SpringBoard applies it without a respring.
 
 #import <Preferences/PSListController.h>
 #import <Preferences/PSSpecifier.h>
+#import <Preferences/PSSliderTableCell.h>
 #import <rootless.h>
 #import <dlfcn.h>
 #import "../Shared/POShared.h"
@@ -22,7 +23,14 @@
 
 - (NSArray *)specifiers {
     if (!_specifiers) {
-        _specifiers = [self loadSpecifiersFromPlistName:@"Root" target:self];
+        NSMutableArray *specifiers = [[self loadSpecifiersFromPlistName:@"Root" target:self] mutableCopy];
+        // Hide Handle only shows when the PullOver Pro for Triggr add-on is installed.
+        if (!POTriggrAddonInstalled()) {
+            for (NSString *identifier in @[@"hideHandleGroup", @"hideHandle"]) {
+                for (PSSpecifier *s in [specifiers copy]) if ([s.identifier isEqualToString:identifier]) [specifiers removeObject:s];
+            }
+        }
+        _specifiers = specifiers;
     }
     return _specifiers;
 }
@@ -46,6 +54,57 @@
 - (void)openURL:(PSSpecifier *)specifier {
     NSURL *url = [NSURL URLWithString:[specifier propertyForKey:@"url"]];
     if (url) [[UIApplication sharedApplication] openURL:url options:@{} completionHandler:nil];
+}
+
+@end
+
+#pragma mark - Slider value
+
+// iOS 16 lays the built-in value label out too narrow for "%.2f": "5.00" showed as "5.0(". Show whole numbers on
+// stepped sliders and one decimal otherwise, so the value always fits. The stored value is unchanged.
+@interface POValueSliderCell : PSSliderTableCell
+@end
+
+@implementation POValueSliderCell
+
+static void POFormatLabels(UIView *view, UIView *skip, BOOL whole) {
+    for (UIView *sub in view.subviews) {
+        if ([sub isKindOfClass:UILabel.class] && sub != skip) {
+            UILabel *label = (UILabel *)sub;
+            NSScanner *scanner = [NSScanner scannerWithString:label.text ?: @""];
+            double number;
+            if ([scanner scanDouble:&number] && scanner.isAtEnd) {
+                NSString *text = whole ? [NSString stringWithFormat:@"%.0f", number] : [NSString stringWithFormat:@"%.1f", number];
+                if (![label.text isEqualToString:text]) label.text = text;
+            }
+        }
+        POFormatLabels(sub, skip, whole);
+    }
+}
+
+- (BOOL)POWhole {
+    id segmented = [self.specifier propertyForKey:@"isSegmented"];
+    return [segmented respondsToSelector:@selector(boolValue)] && [segmented boolValue];
+}
+
+- (void)POReformat {
+    POFormatLabels(self, self.textLabel, [self POWhole]);
+}
+
+- (void)POValueChanged {
+    [self.control layoutIfNeeded];
+    [self POReformat];
+    dispatch_async(dispatch_get_main_queue(), ^{ [self POReformat]; });
+}
+
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    if ([self.control isKindOfClass:UIControl.class] && ![[(UIControl *)self.control allTargets] containsObject:self])
+        [(UIControl *)self.control addTarget:self action:@selector(POValueChanged) forControlEvents:UIControlEventValueChanged];
+    // The slider writes its own "%.2f" text when it lays out, after the cell: format once it has.
+    [self.control layoutIfNeeded];
+    [self POReformat];
+    dispatch_async(dispatch_get_main_queue(), ^{ [self POReformat]; });
 }
 
 @end
