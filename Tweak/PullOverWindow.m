@@ -25,8 +25,8 @@
     self = [super initWithFrame:[UIScreen mainScreen].bounds];
     if(self){
         self.windowLevel = UIWindowLevelAlert-1;
-        [self setHidden:NO];
-        self.alpha = 1;
+        [self setHidden:YES];
+        self.alpha = 0;
         self.rootViewController = controller = [[PullOverViewController alloc] init];
         self.userInteractionEnabled = YES;
         self.backgroundColor = [UIColor clearColor];
@@ -39,7 +39,8 @@
 // it yet when the tweak starts, the window stays invisible, so this is called again each time visibility is
 // worked out (unlock, scene activation) until it has one.
 - (void)attachSceneIfNeeded {
-    if (self.windowScene) return;
+    if (self.windowScene && [[UIApplication sharedApplication].connectedScenes containsObject:self.windowScene]) return;
+    self.windowScene = nil;
     UIWindowScene *fallback = nil;
     for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
         if (![scene isKindOfClass:[UIWindowScene class]]) continue;
@@ -48,24 +49,17 @@
     }
     if (fallback) {
         self.windowScene = fallback;
-        if (!self.hidden) [self makeKeyAndVisible];
+
     }
 }
 
 - (void)applySettings{
     NSDictionary *settings = [POApplicationHelper settings];
-    if (controller.isOpened) {
-        [controller endHosting];
-        [controller close];
-    }
+    [controller invalidate];
     // A fresh controller picks up dark mode, scale, labels, left-handed etc.
     self.rootViewController = controller = [[PullOverViewController alloc] init];
     self.transform = [settings[@"leftHanded"] boolValue] ? CGAffineTransformMakeScale(-1.0, 1.0) : CGAffineTransformIdentity;
-    self.hidden = ![settings[@"enabled"] boolValue];
-}
 
--(void)makeKeyAndVisible{
-    [super makeKeyAndVisible];
 }
 - (bool)_shouldCreateContextAsSecure{
     return YES;
@@ -74,19 +68,19 @@
 
 
 - (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event{
+    if (self.hidden || self.alpha <= 0.01 || !controller) return nil;
     UIView *hitTestResult = [super hitTest:point withEvent:event];
-    
-
-    CGPoint convertedPoint = [self convertPoint:point toView:controller.contentView];
 
     if ([controller isOpened]) {
-//        if (CGRectContainsPoint(controller.contentView.bounds, convertedPoint)) {
-//            NSLog(@"[PO] Touch is contained in controller!");
-//            return nil;
-//        }
+        BOOL landscape = controller.view.bounds.size.width > controller.view.bounds.size.height;
+        if (landscape && [[POApplicationHelper settings][@"landscapeTouchThrough"] boolValue]) {
+            BOOL inPanel = hitTestResult == controller.contentView || [hitTestResult isDescendantOfView:controller.contentView];
+            BOOL inHandle = hitTestResult == controller.handle || [hitTestResult isDescendantOfView:controller.handle];
+            if (!inPanel && !inHandle) return nil;
+        }
         return hitTestResult;
     }else{
-        if ([hitTestResult isKindOfClass:[POHandle class]]) {
+        if (hitTestResult == controller.handle || [hitTestResult isDescendantOfView:controller.handle]) {
             return controller.handle;
         }
         return nil;

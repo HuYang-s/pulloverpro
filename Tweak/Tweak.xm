@@ -14,6 +14,8 @@
 #import <objc/runtime.h>
 
 static PullOverWindow *window;
+static UIInterfaceOrientation activeOrientation;
+static NSUInteger prefsGeneration;
 
 // The drawer shows only while the phone is unlocked: SpringBoard's lock state aggregator says 0. The system
 // lock notification is the answer only where the aggregator is missing; otherwise it is one more moment to
@@ -28,16 +30,29 @@ static BOOL POUnlocked(void) {
     if ([aggregator respondsToSelector:@selector(lockState)]) return [aggregator lockState] == 0;
     uint64_t state = 1;
     if (notify_is_valid_token(POLockToken) && notify_get_state(POLockToken, &state) == NOTIFY_STATUS_OK) return state == 0;
-    return YES; // nothing to ask: show it, as a hidden handle is the worse failure
+    return NO;
+}
+
+static BOOL POCanPresent(void) {
+    if (!window || !window.windowScene) return NO;
+    NSDictionary *settings = [POApplicationHelper settings];
+    UIInterfaceOrientation orientation = activeOrientation != UIInterfaceOrientationUnknown ? activeOrientation : (UIInterfaceOrientation)window.windowScene.interfaceOrientation;
+    return [settings[@"enabled"] boolValue] && POUnlocked() &&
+        !([settings[@"hideInLandscape"] boolValue] && UIInterfaceOrientationIsLandscape(orientation));
 }
 
 static void POUpdateVisibility(void) {
+    if (![NSThread isMainThread]) {
+        dispatch_async(dispatch_get_main_queue(), ^{ POUpdateVisibility(); });
+        return;
+    }
     if (!window) return;
     [window attachSceneIfNeeded];
-    CGFloat alpha = POUnlocked() ? 1 : 0;
-    POLog(@"visibility: unlocked=%d scene=%d hidden=%d alpha %.0f -> %.0f", (int)alpha, window.windowScene != nil, window.hidden, window.alpha, alpha);
-    if (window.alpha == alpha) return;
-    [UIView animateWithDuration:0.2 animations:^{ window.alpha = alpha; }];
+    BOOL allowed = POCanPresent();
+    [window.controller setPresentationAllowed:allowed];
+    [window.layer removeAllAnimations];
+    window.alpha = allowed ? 1 : 0;
+    window.hidden = !allowed;
 }
 
 @interface SpringBoard (PullOver)
@@ -58,15 +73,10 @@ static void POUpdateVisibility(void) {
 }
 - (void)activeInterfaceOrientationWillChangeToOrientation:(long long)orientation {}
 - (void)activeInterfaceOrientationDidChangeToOrientation:(long long)orientation willAnimateWithDuration:(double)duration fromOrientation:(long long)from {
-    if (!window || ![[POApplicationHelper settings][@"hideInLandscape"] boolValue]) return;
-    BOOL portrait = (orientation == UIInterfaceOrientationPortrait);
-    if (!portrait && [window.controller isOpened]) {
-        [window.controller endHosting];
-        [window.controller close];
-    }
-    [UIView animateWithDuration:0.2 animations:^{
-        window.rootViewController.view.alpha = portrait ? 1 : 0;
-    }];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        activeOrientation = (UIInterfaceOrientation)orientation;
+        POUpdateVisibility();
+    });
 }
 @end
 
@@ -74,15 +84,15 @@ static void POUpdateVisibility(void) {
 // so every option applies without a respring.
 static void POPrefsChanged(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef userInfo) {
     dispatch_async(dispatch_get_main_queue(), ^{
-        [POApplicationHelper reloadSettings];
-        BOOL enabled = [[POApplicationHelper settings][@"enabled"] boolValue];
-        if (enabled && !window) {
-            window = [PullOverWindow sharedWindow];
-            window.alpha = 0;
-            [window makeKeyAndVisible];
-        }
-        [window applySettings];
-        POUpdateVisibility();
+        NSUInteger generation = ++prefsGeneration;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.15 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            if (generation != prefsGeneration) return;
+            [POApplicationHelper reloadSettings];
+            BOOL enabled = [[POApplicationHelper settings][@"enabled"] boolValue];
+            if (enabled && !window) window = [PullOverWindow sharedWindow];
+            if (window) [window applySettings];
+            POUpdateVisibility();
+        });
     });
 }
 
@@ -98,7 +108,7 @@ static void POCommand(CFNotificationCenterRef center, void *observer, CFStringRe
     NSString *command = [(__bridge NSString *)name lastPathComponent];
     dispatch_async(dispatch_get_main_queue(), ^{
         PullOverViewController *controller = window.controller;
-        if (!controller || window.hidden || window.alpha == 0 || controller.view.alpha == 0) return;
+        if (!controller || !POCanPresent()) return;
         BOOL open = [command isEqualToString:@"open"] || ([command isEqualToString:@"toggle"] && !controller.isOpened);
         if (open) {
             if (controller.isOpened) return;
@@ -115,23 +125,24 @@ static void POCommand(CFNotificationCenterRef center, void *observer, CFStringRe
 - (void)applicationDidFinishLaunching:(UIApplication *)arg1{
     %orig;
 
+    // Orientation: SpringBoard's own observer list (same API on iOS 15-27)
+    // instead of hooking noteInterfaceOrientationChanged:, which iOS 27 dropped.
+    if ([self respondsToSelector:@selector(activeInterfaceOrientation)]) {
+        activeOrientation = (UIInterfaceOrientation)[self activeInterfaceOrientation];
+    }
+    if ([self respondsToSelector:@selector(addActiveOrientationObserver:)]) {
+        [self addActiveOrientationObserver:[POOrientationObserver shared]];
+    }
+
     if (![[POApplicationHelper settings][@"enabled"] boolValue]) return;
 
     window = [PullOverWindow sharedWindow];
-    window.alpha = 0;
-    [window makeKeyAndVisible];
     [window applySettings];
     // Work out visibility now and again shortly after: SpringBoard is still starting, and neither the lock
     // state nor the window scene is guaranteed to be settled at this point.
     POUpdateVisibility();
     for (NSNumber *delay in @[@1, @3, @8]) {
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay.doubleValue * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ POUpdateVisibility(); });
-    }
-
-    // Orientation: SpringBoard's own observer list (same API on iOS 15-27)
-    // instead of hooking noteInterfaceOrientationChanged:, which iOS 27 dropped.
-    if ([self respondsToSelector:@selector(addActiveOrientationObserver:)]) {
-        [self addActiveOrientationObserver:[POOrientationObserver shared]];
     }
 }
 
@@ -143,17 +154,20 @@ static void POCommand(CFNotificationCenterRef center, void *observer, CFStringRe
     POSetFrontMostBundleId(front);
     // Back on the Home Screen. The transition hook above already closed the drawer as the animation
     // began; this is the fallback, and re-attaches the app when the drawer stays open.
-    if (!front && [window.controller isOpened]) {
+    PullOverViewController *controller = window.controller;
+    if (front && controller.isOpened && [front isEqualToString:[[POApplicationHelper state] stringForKey:@"lastPinnedBundleId"]]) {
+        [controller closeAndStopHosting];
+    }
+    if (!front && [controller isOpened]) {
         if (POCloseOnHome()) {
-            dispatch_async(dispatch_get_main_queue(), ^{ [window.controller close]; });
+            dispatch_async(dispatch_get_main_queue(), ^{ if (window.controller == controller) [controller close]; });
         } else {
             // Staying open: going home sends every app to the background, the pulled-over one too
             // (it shows black). Attach it again once the Home Screen has settled.
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
                 PullOverViewController *c = window.controller;
-                if (![c isOpened]) return;
-                [c endHosting];
-                c.isOpened = YES;
+                if (c != controller || ![c isOpened] || !POCanPresent()) return;
+                [c refreshHosting];
             });
         }
     }
@@ -183,10 +197,8 @@ static void POCommand(CFNotificationCenterRef center, void *observer, CFStringRe
 -(void)grabberTongueBeganPulling:(id)arg1 withDistance:(double)arg2 andVelocity:(double)arg3 {
     if ([window.controller isOpened] && POCloseOnHome()){
         [window.controller close];
-        [self grabberTongueCanceledPulling:arg1 withDistance:arg2 andVelocity:arg3];
-    }else{
-        %orig;
     }
+    %orig;
 }
 %end
 
@@ -194,17 +206,14 @@ static void POCommand(CFNotificationCenterRef center, void *observer, CFStringRe
 -(void)singlePressUp:(id)arg1{
     if ([window.controller isOpened] && POCloseOnHome()){
         [window.controller close];
-    }else{
-        %orig;
     }
+    %orig;
 }
 %end
 
 %hook SBLockHardwareButton
 -(void)singlePress:(id)arg1 {
-    if ([window.controller isOpened]){
-        [window.controller close];
-    }
+    [window.controller closeAndStopHosting];
     %orig;
 }
 %end
@@ -213,14 +222,14 @@ static void POCommand(CFNotificationCenterRef center, void *observer, CFStringRe
 // coming down, not after. Both methods exist on iOS 15-27 (checked against 15.8.6 to 27.0.1).
 %hook SBControlCenterController
 - (void)_willPresent {
-    if ([window.controller isOpened]) [window.controller close];
+    [window.controller closeAndStopHosting];
     %orig;
 }
 %end
 
 %hook SBCoverSheetPresentationManager
 - (void)_prepareForPresentationTransitionForUserGesture:(BOOL)gesture {
-    if ([window.controller isOpened]) [window.controller close];
+    [window.controller closeAndStopHosting];
     %orig;
 }
 %end

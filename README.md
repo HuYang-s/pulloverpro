@@ -24,6 +24,17 @@ Theos, Rootless scheme:
 make package THEOS_PACKAGE_SCHEME=rootless
 ```
 
+For native RootHide, use the RootHide fork of Theos with its vendor submodules:
+
+```sh
+make clean THEOS_PACKAGE_SCHEME=roothide
+make package THEOS_PACKAGE_SCHEME=roothide FINALPACKAGE=1 DEBUG=0
+```
+
+The local optimized build uses `jbroot()` under the RootHide scheme. If the selected SDK does not ship the private Preferences framework linker stub, supply its compatible framework directory via `ADDITIONAL_LDFLAGS="-F/path/to/frameworks"`. The linker stub is only a build dependency.
+
+Landscape is enabled by default for fresh settings. The optional **Landscape Touch Through** setting permits taps outside the drawer to pass through the overlay window in landscape. When enabled, use the handle to close the drawer. Existing saved Hide in Landscape preferences are respected.
+
 The favorites picker uses [AltList](https://github.com/opa334/AltList) at runtime (package dependency).
 
 <details>

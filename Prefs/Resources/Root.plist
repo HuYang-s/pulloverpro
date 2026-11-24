@@ -237,13 +237,27 @@
 			<key>cell</key>
 			<string>PSSwitchCell</string>
 			<key>default</key>
-			<true/>
+			<false/>
 			<key>defaults</key>
 			<string>com.johndie.pulloverpro-rootless</string>
 			<key>key</key>
 			<string>hideInLandscape</string>
 			<key>label</key>
 			<string>Hide in Landscape</string>
+			<key>PostNotification</key>
+			<string>com.johndie.pulloverpro-rootless/changed</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<false/>
+			<key>defaults</key>
+			<string>com.johndie.pulloverpro-rootless</string>
+			<key>key</key>
+			<string>landscapeTouchThrough</string>
+			<key>label</key>
+			<string>Landscape Touch Through</string>
 			<key>PostNotification</key>
 			<string>com.johndie.pulloverpro-rootless/changed</string>
 		</dict>

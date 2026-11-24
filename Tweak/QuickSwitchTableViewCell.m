@@ -13,7 +13,7 @@
 -(instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier{
     if (self = [super initWithStyle:style reuseIdentifier:reuseIdentifier]) {
         self.imgView = [[UIImageView alloc] initWithFrame:CGRectMake(8, 8, 18, 18)];
-        self.imageView.contentMode = UIViewContentModeScaleAspectFit;
+        self.imgView.contentMode = UIViewContentModeScaleAspectFit;
         [self addSubview:self.imgView];
         
         if (@available(iOS 13, *)){
@@ -28,6 +28,14 @@
         }
     }
     return self;
+}
+
+- (void)prepareForReuse {
+    [super prepareForReuse];
+    [self.layer removeAllAnimations];
+    self.transform = CGAffineTransformIdentity;
+    self.layer.zPosition = 0;
+    self.imgView.image = nil;
 }
 
 @end

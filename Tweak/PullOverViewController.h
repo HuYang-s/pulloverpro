@@ -17,11 +17,15 @@
 #import "headers.h"
 
 
-@interface PullOverViewController : UIViewController <UIScrollViewDelegate, POHandleDelegate, QuickSwitchSelectionDelegate>
+@interface PullOverViewController : UIViewController <UIScrollViewDelegate, UIGestureRecognizerDelegate, POHandleDelegate, QuickSwitchSelectionDelegate>
 
 -(void)open;
 -(void)close;
 -(void)endHosting;
+-(void)refreshHosting;
+-(void)closeAndStopHosting;
+-(void)invalidate;
+-(void)setPresentationAllowed:(BOOL)allowed;
 -(void)updateHandleVisibility:(float)progress;
 @property (nonatomic) BOOL isOpened;
 

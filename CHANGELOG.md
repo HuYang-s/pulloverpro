@@ -1,5 +1,15 @@
 # Changelog
 
+## 3.0.2~codex2 (local optimized build)
+
+- Enable landscape by default for new preferences, with a compact side panel and optional touch-through outside the panel. Preserve saved preferences.
+- Respect safe-area insets and preserve drawer progress across size changes. Prevent drawer panning from starting inside the hosted content.
+- Validate private API availability and scene/presenter lifecycle. Bound launch retries and invalidate stale asynchronous callbacks. Restore foreground state only when changed by the tweak.
+- Harden QuickSwitch bounds, reuse, deduplication, scrolling, and drag cleanup.
+- Debounce preference changes, normalize saved settings, cache icons, and close hosting for system overlays and locking.
+- Build Rootless and native RootHide variants using their respective Theos schemes and path APIs.
+- Device-level performance, keyboard, scene orientation, and touch routing still require testing on iOS 17.
+
 ## 3.0.1
 
 - **Fixed:** on some phones the handle never appeared after a respring until the phone was locked and unlocked again. PullOver Pro now checks whether the phone is unlocked as it starts, not only when that changes. Reported on an iPhone 13 Pro on iOS 17 ([#1](https://github.com/Jond-ie/pulloverpro/issues/1)).

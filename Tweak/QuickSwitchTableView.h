@@ -26,6 +26,8 @@
 @interface QuickSwitchTableView : UITableView <UITableViewDelegate, UITableViewDataSource>
 @property (nonatomic, weak) id <QuickSwitchSelectionDelegate> selectionDelegate;
 @property (nonatomic) BOOL darkMode;
+@property (nonatomic, readonly) BOOL isPresented;
+-(void)cancelPresentation;
 -(void)presentFromHandle:(UIView *)handle withRecognizer:(UILongPressGestureRecognizer *)recognizer;
 -(instancetype)initWithDarkMode:(BOOL)darkMode;
 

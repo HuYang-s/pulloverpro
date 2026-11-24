@@ -5,7 +5,6 @@
 #import <Preferences/PSListController.h>
 #import <Preferences/PSSpecifier.h>
 #import <Preferences/PSSliderTableCell.h>
-#import <rootless.h>
 #import <dlfcn.h>
 #import "../Shared/POShared.h"
 
@@ -18,7 +17,7 @@
     if (self != [POPRootListController class]) return;
     // The favourites picker comes from AltList (a package dependency); load it
     // at runtime so the plist can name its controller class.
-    dlopen(ROOT_PATH("/Library/Frameworks/AltList.framework/AltList"), RTLD_NOW);
+    dlopen(PO_PATH_C("/Library/Frameworks/AltList.framework/AltList"), RTLD_NOW);
 }
 
 - (NSArray *)specifiers {
@@ -99,7 +98,7 @@ static void POFormatLabels(UIView *view, UIView *skip, BOOL whole) {
 
 - (void)layoutSubviews {
     [super layoutSubviews];
-    if ([self.control isKindOfClass:UIControl.class] && ![[(UIControl *)self.control allTargets] containsObject:self])
+    if ([self.control isKindOfClass:UIControl.class] && ![[((UIControl *)self.control) actionsForTarget:self forControlEvent:UIControlEventValueChanged] containsObject:NSStringFromSelector(@selector(POValueChanged))])
         [(UIControl *)self.control addTarget:self action:@selector(POValueChanged) forControlEvents:UIControlEventValueChanged];
     // The slider writes its own "%.2f" text when it lays out, after the cell: format once it has.
     [self.control layoutIfNeeded];

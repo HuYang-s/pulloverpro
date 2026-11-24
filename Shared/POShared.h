@@ -10,8 +10,8 @@
 
 // "Hide Handle" only exists with the PullOver Pro for Triggr add-on installed,
 // since its Triggr actions are then the only way to pull an app over.
-#include <rootless.h>
+#include "POPaths.h"
 #include <unistd.h>
 static inline BOOL POTriggrAddonInstalled(void) {
-    return access(ROOT_PATH("/Library/MobileSubstrate/DynamicLibraries/PullOverTriggr.dylib"), F_OK) == 0;
+    return access(PO_PATH_C("/Library/MobileSubstrate/DynamicLibraries/PullOverTriggr.dylib"), F_OK) == 0;
 }
