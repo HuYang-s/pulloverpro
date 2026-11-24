@@ -16,6 +16,12 @@
     for (UIView *view = hitTestResult; view && view != self; view = view.superview) {
         if ([view isKindOfClass:[POHandle class]]) return view;
     }
+    // UIKit may return the scroll view for a point outside a child's visual
+    // bounds. Forward the expanded compact-handle target explicitly.
+    for (UIView *view in self.subviews) {
+        if (![view isKindOfClass:[POHandle class]] || view.hidden || view.alpha <= 0.01) continue;
+        if ([view pointInside:[view convertPoint:point fromView:self] withEvent:event]) return view;
+    }
     return nil;
 }
 

@@ -10,7 +10,7 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>footerText</key>
-			<string>Changes apply right away, no respring needed.</string>
+			<string>修改即时生效，无需重启桌面。</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -22,7 +22,7 @@
 			<key>key</key>
 			<string>enabled</string>
 			<key>label</key>
-			<string>Enabled</string>
+			<string>启用插件</string>
 			<key>PostNotification</key>
 			<string>com.johndie.pulloverpro-rootless/changed</string>
 		</dict>
@@ -30,9 +30,9 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>label</key>
-			<string>QuickSwitch</string>
+			<string>快速切换</string>
 			<key>footerText</key>
-			<string>Long-press the handle to open QuickSwitch. Pick an app to pin it, or drag it to the middle to open it full screen.</string>
+			<string>长按手柄打开快速切换，选择应用即可固定，或拖到屏幕中央全屏打开。</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -45,8 +45,8 @@
 			<string>style</string>
 			<key>validTitles</key>
 			<array>
-				<string>Recent Apps</string>
-				<string>Favorites</string>
+				<string>最近应用</string>
+				<string>收藏应用</string>
 			</array>
 			<key>validValues</key>
 			<array>
@@ -60,7 +60,7 @@
 			<key>cell</key>
 			<string>PSStaticTextCell</string>
 			<key>label</key>
-			<string>Number of Recent Apps</string>
+			<string>最近应用数量</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -96,7 +96,7 @@
 			<key>key</key>
 			<string>favorites</string>
 			<key>label</key>
-			<string>Favorite Apps</string>
+			<string>收藏应用</string>
 			<key>sections</key>
 			<array>
 				<dict>
@@ -117,7 +117,7 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>label</key>
-			<string>Appearance</string>
+			<string>外观</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -129,7 +129,7 @@
 			<key>key</key>
 			<string>leftHanded</string>
 			<key>label</key>
-			<string>Left-Handed Mode</string>
+			<string>左手模式</string>
 			<key>PostNotification</key>
 			<string>com.johndie.pulloverpro-rootless/changed</string>
 		</dict>
@@ -143,7 +143,7 @@
 			<key>key</key>
 			<string>darkHandle</string>
 			<key>label</key>
-			<string>Dark Handle</string>
+			<string>深色手柄</string>
 			<key>PostNotification</key>
 			<string>com.johndie.pulloverpro-rootless/changed</string>
 		</dict>
@@ -157,7 +157,7 @@
 			<key>key</key>
 			<string>hideLabels</string>
 			<key>label</key>
-			<string>Hide QuickSwitch Labels</string>
+			<string>隐藏快速切换文字</string>
 			<key>PostNotification</key>
 			<string>com.johndie.pulloverpro-rootless/changed</string>
 		</dict>
@@ -165,7 +165,7 @@
 			<key>cell</key>
 			<string>PSStaticTextCell</string>
 			<key>label</key>
-			<string>QuickSwitch Size</string>
+			<string>快速切换菜单大小</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -191,7 +191,7 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>footerText</key>
-			<string>Hides the handle until an app is pulled over. Use your PullOver Pro Triggr actions to pull an app over or open QuickSwitch.</string>
+			<string>浮窗收起时淡化手柄，仍可直接点击或长按唤出，打开浮窗时恢复正常亮度。</string>
 			<key>id</key>
 			<string>hideHandleGroup</string>
 		</dict>
@@ -205,7 +205,7 @@
 			<key>key</key>
 			<string>hideHandle</string>
 			<key>label</key>
-			<string>Hide Handle</string>
+			<string>收起时淡化手柄</string>
 			<key>PostNotification</key>
 			<string>com.johndie.pulloverpro-rootless/changed</string>
 			<key>id</key>
@@ -215,9 +215,9 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>label</key>
-			<string>Behavior</string>
+			<string>交互行为</string>
 			<key>footerText</key>
-			<string>Close When Going Home: pressing Home or swiping up to the Home Screen also closes the app you pulled over.</string>
+			<string>返回主屏幕时可自动关闭浮窗。</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -229,7 +229,7 @@
 			<key>key</key>
 			<string>closeOnHome</string>
 			<key>label</key>
-			<string>Close When Going Home</string>
+			<string>返回主屏幕时关闭浮窗</string>
 			<key>PostNotification</key>
 			<string>com.johndie.pulloverpro-rootless/changed</string>
 		</dict>
@@ -243,7 +243,7 @@
 			<key>key</key>
 			<string>hideInLandscape</string>
 			<key>label</key>
-			<string>Hide in Landscape</string>
+			<string>横屏时隐藏插件</string>
 			<key>PostNotification</key>
 			<string>com.johndie.pulloverpro-rootless/changed</string>
 		</dict>
@@ -257,7 +257,7 @@
 			<key>key</key>
 			<string>landscapeTouchThrough</string>
 			<key>label</key>
-			<string>Landscape Touch Through</string>
+			<string>横屏触摸穿透</string>
 			<key>PostNotification</key>
 			<string>com.johndie.pulloverpro-rootless/changed</string>
 		</dict>
@@ -271,7 +271,7 @@
 			<key>key</key>
 			<string>hapticFeedback</string>
 			<key>label</key>
-			<string>Haptic Feedback</string>
+			<string>触感反馈</string>
 			<key>PostNotification</key>
 			<string>com.johndie.pulloverpro-rootless/changed</string>
 		</dict>
@@ -285,7 +285,7 @@
 			<key>key</key>
 			<string>keyboardAvoiding</string>
 			<key>label</key>
-			<string>Move Handle Above Keyboard</string>
+			<string>键盘弹出时上移手柄</string>
 			<key>PostNotification</key>
 			<string>com.johndie.pulloverpro-rootless/changed</string>
 		</dict>
@@ -293,9 +293,9 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>label</key>
-			<string>Auto-Nub</string>
+			<string>手柄自动收起</string>
 			<key>footerText</key>
-			<string>Shrinks the handle into a small nub at the edge after it has been idle.</string>
+			<string>闲置后将手柄收至屏幕边缘，保留可见标记及扩大的触摸区域。</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -307,7 +307,7 @@
 			<key>key</key>
 			<string>autoNub</string>
 			<key>label</key>
-			<string>Auto-Nub When Idle</string>
+			<string>闲置时自动收起</string>
 			<key>PostNotification</key>
 			<string>com.johndie.pulloverpro-rootless/changed</string>
 		</dict>
@@ -315,7 +315,7 @@
 			<key>cell</key>
 			<string>PSStaticTextCell</string>
 			<key>label</key>
-			<string>Nub After (seconds)</string>
+			<string>自动收起延时（秒）</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -345,15 +345,15 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>label</key>
-			<string>Credits</string>
+			<string>致谢</string>
 			<key>footerText</key>
-			<string>Original tweak by c1d3r (GPL-3.0).</string>
+			<string>原始插件由 c1d3r 开发（GPL-3.0）。</string>
 		</dict>
 		<dict>
 			<key>cell</key>
 			<string>PSButtonCell</string>
 			<key>label</key>
-			<string>c1d3r, original tweak</string>
+			<string>c1d3r：原始插件</string>
 			<key>action</key>
 			<string>openURL:</string>
 			<key>url</key>
@@ -363,7 +363,7 @@
 			<key>cell</key>
 			<string>PSButtonCell</string>
 			<key>label</key>
-			<string>Jond_ie, iOS 15–27</string>
+			<string>Jond_ie：iOS 15–27 移植</string>
 			<key>action</key>
 			<string>openURL:</string>
 			<key>url</key>
@@ -373,13 +373,13 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>label</key>
-			<string>Help &amp; Support</string>
+			<string>帮助与支持</string>
 		</dict>
 		<dict>
 			<key>cell</key>
 			<string>PSButtonCell</string>
 			<key>label</key>
-			<string>Report a Problem</string>
+			<string>反馈问题</string>
 			<key>action</key>
 			<string>openURL:</string>
 			<key>url</key>
@@ -389,7 +389,7 @@
 			<key>cell</key>
 			<string>PSButtonCell</string>
 			<key>label</key>
-			<string>Contact</string>
+			<string>联系作者</string>
 			<key>action</key>
 			<string>openURL:</string>
 			<key>url</key>
@@ -399,7 +399,7 @@
 			<key>cell</key>
 			<string>PSButtonCell</string>
 			<key>label</key>
-			<string>Donate</string>
+			<string>捐赠</string>
 			<key>action</key>
 			<string>openURL:</string>
 			<key>url</key>

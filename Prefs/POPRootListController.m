@@ -22,14 +22,7 @@
 
 - (NSArray *)specifiers {
     if (!_specifiers) {
-        NSMutableArray *specifiers = [[self loadSpecifiersFromPlistName:@"Root" target:self] mutableCopy];
-        // Hide Handle only shows when the PullOver Pro for Triggr add-on is installed.
-        if (!POTriggrAddonInstalled()) {
-            for (NSString *identifier in @[@"hideHandleGroup", @"hideHandle"]) {
-                for (PSSpecifier *s in [specifiers copy]) if ([s.identifier isEqualToString:identifier]) [specifiers removeObject:s];
-            }
-        }
-        _specifiers = specifiers;
+        _specifiers = [self loadSpecifiersFromPlistName:@"Root" target:self];
     }
     return _specifiers;
 }

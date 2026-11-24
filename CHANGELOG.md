@@ -1,5 +1,14 @@
 # Changelog
 
+## 3.0.2~codex3
+
+- Translate plugin-owned settings, QuickSwitch instructions, and hosting failure messages into Simplified Chinese while preserving stored preference keys and values.
+- Increase the compact handle from 10 to 30 pt of visible width and expand its nominal touch area to 44 × 52 pt.
+- Keep the handle visible at 55% opacity when dimming is enabled, with full opacity while the drawer opens.
+- Allow direct tap and long press while compact, reduce animation duration, and defer automatic collapse during active interaction.
+- Make the dimming setting available without a Triggr add-on.
+- RootHide and Rootless builds passed; on-device interaction testing remains pending.
+
 ## 3.0.2~codex2 (local optimized build)
 
 - Enable landscape by default for new preferences, with a compact side panel and optional touch-through outside the panel. Preserve saved preferences.

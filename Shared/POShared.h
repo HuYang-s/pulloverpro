@@ -8,10 +8,4 @@
 #define POCloseNotification "com.johndie.pulloverpro-rootless/close"
 #define POToggleNotification "com.johndie.pulloverpro-rootless/toggle"
 
-// "Hide Handle" only exists with the PullOver Pro for Triggr add-on installed,
-// since its Triggr actions are then the only way to pull an app over.
 #include "POPaths.h"
-#include <unistd.h>
-static inline BOOL POTriggrAddonInstalled(void) {
-    return access(PO_PATH_C("/Library/MobileSubstrate/DynamicLibraries/PullOverTriggr.dylib"), F_OK) == 0;
-}

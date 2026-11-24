@@ -58,6 +58,7 @@
 }
 
 - (void)updateLayoutForCurrentBounds;
+- (void)scheduleAutoNub;
 - (void)layoutContextView;
 - (void)attemptHostingForGeneration:(NSUInteger)generation;
 - (void)showHostingMessage:(NSString *)message symbolName:(NSString *)symbolName generation:(NSUInteger)generation;
@@ -109,7 +110,7 @@
     dragAndDropLabel.textColor = [UIColor whiteColor];
     dragAndDropLabel.textAlignment = NSTextAlignmentCenter;
     dragAndDropLabel.numberOfLines = 2;
-    dragAndDropLabel.text = @"Drag QuickSwitch Items\nHere To Open";
+    dragAndDropLabel.text = @"将应用拖到这里\n即可全屏打开";
     [self.backgroundView addSubview:dragAndDropLabel];
     dragAndDropLabel.alpha = 0;
     dragAndDropLabel.center = CGPointMake(dragAndDropView.center.x, dragAndDropLabel.center.y);
@@ -138,6 +139,7 @@
     [handleScrollView setBackgroundColor:[UIColor clearColor]];
     [handleScrollView setDecelerationRate:UIScrollViewDecelerationRateFast];
     [handleScrollView setClipsToBounds:NO];
+    handleScrollView.delaysContentTouches = NO;
     handleScrollView.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
     [handleScrollView setDelegate:self];
     NSString *savedHandle = [[POApplicationHelper state] stringForKey:@"handlePoint"];
@@ -212,11 +214,10 @@
     [self updateLayoutForCurrentBounds];
 }
 
-// Hide Handle (needs the Triggr add-on): invisible while closed, so it also takes
-// no touches; fades in as an app is pulled over, so it can still be closed by hand.
+// Keep a visible, interactive handle even when the user chooses to dim it.
 -(void)updateHandleVisibility:(float)progress{
-    BOOL hide = [[POApplicationHelper settings][@"hideHandle"] boolValue] && POTriggrAddonInstalled();
-    self.handle.alpha = hide ? MAX(0, MIN(1, progress * 4)) : 1;
+    BOOL dim = [[POApplicationHelper settings][@"hideHandle"] boolValue];
+    self.handle.alpha = dim ? 0.55 + 0.45 * MIN(1, MAX(0, progress * 4)) : 1;
 }
 
 -(void)viewDidLayoutSubviews{
@@ -349,6 +350,7 @@
 
 -(void)open{
     if (!presentationAllowed || isInvalidated || drawerTravel <= 0) return;
+    self.handle.isNubbed = NO;
     [scrollView setContentOffset:CGPointMake(drawerTravel, 0) animated:YES];
 }
 
@@ -363,6 +365,7 @@
     presentationAllowed = allowed;
     if (!allowed) [self closeAndStopHosting];
     self.view.userInteractionEnabled = allowed;
+    if (allowed) [self scheduleAutoNub];
 }
 
 #pragma mark - MHHandleDelegate
@@ -377,6 +380,9 @@
 
 -(void)handle:(POHandle *)handle didLongPress:(UILongPressGestureRecognizer *)recognizer{
     if (presentationAllowed && !self.isOpened) {
+        if (recognizer.state == UIGestureRecognizerStateBegan) {
+            [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(autoNubAfterDelay) object:nil];
+        }
         if (self.handle.isNubbed) {
             self.handle.isNubbed = NO;
         }
@@ -390,6 +396,9 @@
                 self.backgroundView.alpha = 0;
             }
         }];
+        if (recognizer.state != UIGestureRecognizerStateBegan && recognizer.state != UIGestureRecognizerStateChanged) {
+            [self scheduleAutoNub];
+        }
     }
 }
 
@@ -442,12 +451,12 @@
     CGPoint locationInView = [dragAndDropView convertPoint:point fromView:quickSwitchTableView];
     if (CGRectContainsPoint(dragAndDropView.bounds, locationInView) ) {
         [UIView animateWithDuration:0.3f animations:^{
-            dragAndDropLabel.text = [NSString stringWithFormat:@"Open %@", app.displayName];
+            dragAndDropLabel.text = [NSString stringWithFormat:@"打开 %@", app.displayName];
             dragAndDropView.transform = CGAffineTransformMakeScale(1.3, 1.3);
         }];
     }else{
         [UIView animateWithDuration:0.3f animations:^{
-            dragAndDropLabel.text = @"Drag QuickSwitch Items\nHere To Open";
+            dragAndDropLabel.text = @"将应用拖到这里\n即可全屏打开";
             dragAndDropView.transform = CGAffineTransformMakeScale(1, 1);
         }];
     }
@@ -491,7 +500,7 @@
 
     
     [UIView animateWithDuration:0.3f animations:^{
-        dragAndDropLabel.text = @"Drag QuickSwitch Items\nHere To Open";
+        dragAndDropLabel.text = @"将应用拖到这里\n即可全屏打开";
         dragAndDropView.transform = CGAffineTransformMakeScale(1, 1);
     }];
 }
@@ -500,7 +509,10 @@
     [self removeDraggableImageViewAnimated];
     dragAndDropView.alpha = 0;
     dragAndDropLabel.alpha = 0;
-    if (!self.isOpened) self.backgroundView.alpha = 0;
+    if (!self.isOpened) {
+        self.backgroundView.alpha = 0;
+        [self scheduleAutoNub];
+    }
 }
 
 
@@ -568,14 +580,24 @@
         [self beginHosting];
     }else{
         [self endHosting];
-        if (!isInvalidated && [[POApplicationHelper settings][@"autoNub"] boolValue]){
-            [self performSelector:@selector(autoNubAfterDelay) withObject:nil afterDelay:[[POApplicationHelper settings][@"autoNub-time"] intValue]];
-        }
+        [self scheduleAutoNub];
     }
 }
 
+-(void)scheduleAutoNub{
+    [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(autoNubAfterDelay) object:nil];
+    if (isInvalidated || !presentationAllowed || self.isOpened || self.handle.isNubbed ||
+        self.quickSwitchTableView.isPresented || ![[POApplicationHelper settings][@"autoNub"] boolValue]) return;
+    [self performSelector:@selector(autoNubAfterDelay) withObject:nil
+               afterDelay:[[POApplicationHelper settings][@"autoNub-time"] intValue]];
+}
+
 -(void)autoNubAfterDelay{
-    if (isInvalidated || !presentationAllowed || self.isOpened) return;
+    if (isInvalidated || !presentationAllowed || self.isOpened || self.quickSwitchTableView.isPresented) return;
+    if (handleScrollView.isTracking || handleScrollView.isDragging || scrollView.isTracking) {
+        [self scheduleAutoNub];
+        return;
+    }
     [self.handle setIsNubbed:YES];
 }
 
@@ -625,7 +647,7 @@
     if ([frontMostBundleId isEqualToString:pinnedBundleId]) {
         hostingInProgress = NO;
         [activityIndicator stopAnimating];
-        [self showHostingMessage:@"This app is already open on screen, so it can't be pulled over right now."
+        [self showHostingMessage:@"此应用已在屏幕上打开，暂时无法以浮窗显示。"
                        symbolName:@"rectangle.on.rectangle.slash" generation:generation];
         return;
     }
@@ -650,7 +672,7 @@
     if (hostingAttempts >= 8) {
         hostingInProgress = NO;
         [activityIndicator stopAnimating];
-        [self showHostingMessage:@"The app could not be started. Close the panel and try again."
+        [self showHostingMessage:@"应用启动失败，请关闭浮窗后重试。"
                        symbolName:@"exclamationmark.app" generation:generation];
         POLog(@"hosting timed out %@ after %lu attempts", pinnedBundleId, (unsigned long)hostingAttempts);
         return;
@@ -688,7 +710,7 @@
 }
 
 -(void)showCantHostView{
-    [self showHostingMessage:@"This app is already open on screen, so it can't be pulled over right now."
+    [self showHostingMessage:@"此应用已在屏幕上打开，暂时无法以浮窗显示。"
                    symbolName:@"rectangle.on.rectangle.slash" generation:hostingGeneration];
 }
 
