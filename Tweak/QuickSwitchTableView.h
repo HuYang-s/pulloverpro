@@ -28,6 +28,7 @@
 @property (nonatomic) BOOL darkMode;
 @property (nonatomic, readonly) BOOL isPresented;
 -(void)cancelPresentation;
+-(BOOL)presentForTapSelectionInFrame:(CGRect)frame;
 -(void)presentFromHandle:(UIView *)handle withRecognizer:(UILongPressGestureRecognizer *)recognizer;
 -(instancetype)initWithDarkMode:(BOOL)darkMode;
 

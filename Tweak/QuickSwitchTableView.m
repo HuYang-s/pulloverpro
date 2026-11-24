@@ -23,6 +23,7 @@
     
     CGFloat scale;
     BOOL isPresented;
+    BOOL tapSelection;
     NSUInteger presentationGeneration;
 }
 
@@ -112,6 +113,7 @@
     NSIndexPath *indexPath = [self indexPathForRowAtPoint:p];
 
     if (recognizer.state == UIGestureRecognizerStateBegan) {
+        tapSelection = NO;
         [self refresh];
         if (items.count == 0) return;
 
@@ -211,6 +213,33 @@
 }
 
 
+// The expanded drawer uses a regular, independently scrollable tap menu.
+-(BOOL)presentForTapSelectionInFrame:(CGRect)frame{
+    [self cancelPresentation];
+    tapSelection = YES;
+    [self refresh];
+    if (!items.count) return NO;
+    frame.size.height = MIN(frame.size.height, items.count * 48.0);
+    self.frame = frame;
+    self.layer.cornerRadius = 12;
+    self.clipsToBounds = YES;
+    self.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
+    isPresented = YES;
+    ++presentationGeneration;
+    [self reloadData];
+    [self setContentOffset:CGPointZero animated:NO];
+    self.alpha = 1;
+    return YES;
+}
+
+-(void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath{
+    if (!tapSelection || !isPresented || ![self isValidIndexPath:indexPath]) return;
+    NSString *bundleId = [items[indexPath.row] copy];
+    [self deselectRowAtIndexPath:indexPath animated:NO];
+    [self cancelPresentation];
+    [self.selectionDelegate quickSwitchTableView:self didSelectBundleId:bundleId];
+}
+
 #pragma mark — TableView
 
 -(NSInteger)numberOfSectionsInTableView:(UITableView *)tableView{
@@ -222,7 +251,7 @@
 }
 
 -(CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath{
-    return 34;
+    return tapSelection ? 48 : 34;
 }
 
 - (nonnull UITableViewCell *)tableView:(nonnull UITableView *)tableView cellForRowAtIndexPath:(nonnull NSIndexPath *)indexPath {
@@ -234,8 +263,17 @@
     
     if (indexPath.row < 0 || indexPath.row >= (NSInteger)items.count) return cell;
     [cell.imgView setImage:[POApplicationHelper imageForBundleId:items[indexPath.row]]];
-    cell.imgView.frame = CGRectMake(8, 8, 18, 18);
-    cell.layer.cornerRadius = 34/2;
+    cell.imgView.frame = tapSelection ? CGRectMake(12, 10, 28, 28) : CGRectMake(8, 8, 18, 18);
+    SBApplication *app = tapSelection ? [self applicationForBundleId:items[indexPath.row]] : nil;
+    cell.appNameLabel.text = tapSelection ? (app.displayName ?: items[indexPath.row]) : nil;
+    cell.appNameLabel.font = [UIFont systemFontOfSize:15];
+    cell.appNameLabel.lineBreakMode = NSLineBreakByTruncatingTail;
+    cell.appNameLabel.textAlignment = [settings[@"leftHanded"] boolValue] ? NSTextAlignmentRight : NSTextAlignmentLeft;
+    cell.accessibilityLabel = tapSelection ? cell.appNameLabel.text : nil;
+    cell.appNameLabel.transform = [settings[@"leftHanded"] boolValue] ? CGAffineTransformMakeScale(-1, 1) : CGAffineTransformIdentity;
+    cell.appNameLabel.hidden = !tapSelection;
+    cell.selectionStyle = tapSelection ? UITableViewCellSelectionStyleDefault : UITableViewCellSelectionStyleNone;
+    cell.layer.cornerRadius = tapSelection ? 8 : 34/2;
     cell.clipsToBounds = YES;
     
     return cell;

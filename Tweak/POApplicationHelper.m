@@ -105,7 +105,7 @@ static NSDictionary *POCachedSettings;
     return @{
         @"enabled": @YES,
         @"hideInLandscape": @NO,
-        @"landscapeTouchThrough": @NO,
+        @"landscapeTouchThrough": @YES,
         @"favorites": @[],
         @"recentAppsCount": @5,
         @"quickswitchScale": @1.75f,

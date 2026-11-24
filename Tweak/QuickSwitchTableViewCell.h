@@ -12,6 +12,7 @@ NS_ASSUME_NONNULL_BEGIN
 @interface QuickSwitchTableViewCell : UITableViewCell
 
 @property (nonatomic, strong) UIImageView *imgView;
+@property (nonatomic, strong) UILabel *appNameLabel;
 
 @end
 

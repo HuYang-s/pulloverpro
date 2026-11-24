@@ -76,7 +76,9 @@
         if (landscape && [[POApplicationHelper settings][@"landscapeTouchThrough"] boolValue]) {
             BOOL inPanel = hitTestResult == controller.contentView || [hitTestResult isDescendantOfView:controller.contentView];
             BOOL inHandle = hitTestResult == controller.handle || [hitTestResult isDescendantOfView:controller.handle];
-            if (!inPanel && !inHandle) return nil;
+            BOOL inControls = hitTestResult == controller.drawerControls || [hitTestResult isDescendantOfView:controller.drawerControls];
+            BOOL inMenu = controller.expandedSwitchMenu.isPresented && (hitTestResult == controller.expandedSwitchMenu || [hitTestResult isDescendantOfView:controller.expandedSwitchMenu]);
+            if (!inPanel && !inHandle && !inControls && !inMenu) return nil;
         }
         return hitTestResult;
     }else{

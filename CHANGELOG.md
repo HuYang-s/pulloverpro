@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.0.2~codex4
+
+- Add a tappable, scrollable app-switching menu while the drawer is open, accessible from its toolbar or the handle.
+- Keep the current foreground app in place when selected from the open drawer, and avoid duplicate scene teardown when switching hosted apps.
+- Add a reversible landscape input zoom mode, with a wider drawer and width-based scaling anchored to the bottom of the hosted scene.
+- Enable landscape touch-through by default for fresh preferences, preserve saved preferences, and remove the dimming overlay when touch-through is enabled.
+- Device touch routing and embedded/system keyboard behavior require on-device verification.
+
 ## 3.0.2~codex3
 
 - Translate plugin-owned settings, QuickSwitch instructions, and hosting failure messages into Simplified Chinese while preserving stored preference keys and values.

@@ -37,6 +37,8 @@
 @property (nonatomic, strong) UIView *contentView;
 
 @property (nonatomic, strong) QuickSwitchTableView *quickSwitchTableView;
+@property (nonatomic, strong, readonly) QuickSwitchTableView *expandedSwitchMenu;
+@property (nonatomic, strong, readonly) UIView *drawerControls;
 
 
 @end

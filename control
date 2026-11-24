@@ -1,6 +1,6 @@
 Package: com.johndie.pulloverpro-rootless
 Name: PullOver Pro
-Version: 3.0.2~codex3
+Version: 3.0.2~codex4
 Architecture: iphoneos-arm64
 Description: Pull over any app, anywhere, from a small handle at the edge of the screen. Original tweak by c1d3r (GPL-3.0), updated for iOS 15-27.
 Maintainer: Jond_ie

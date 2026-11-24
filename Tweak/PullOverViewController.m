@@ -51,6 +51,9 @@
     BOOL isInvalidated;
     BOOL presentationAllowed;
     BOOL updatingLayout;
+    BOOL inputZoom;
+    UIButton *zoomButton;
+    UIButton *switchButton;
     CGFloat drawerTravel;
     NSUInteger hostingGeneration;
     NSUInteger pinGeneration;
@@ -58,6 +61,9 @@
 }
 
 - (void)updateLayoutForCurrentBounds;
+- (void)updateDrawerControls;
+- (void)toggleExpandedSwitchMenu;
+- (void)toggleInputZoom;
 - (void)scheduleAutoNub;
 - (void)layoutContextView;
 - (void)attemptHostingForGeneration:(NSUInteger)generation;
@@ -185,6 +191,29 @@
     
     [scrollView addSubview:self.contentView];
     ((PODrawerScrollView *)scrollView).hostedContent = self.contentView;
+
+    _drawerControls = [[UIView alloc] initWithFrame:CGRectZero];
+    _drawerControls.backgroundColor = [UIColor secondarySystemBackgroundColor];
+    _drawerControls.layer.cornerRadius = 10;
+    _drawerControls.hidden = YES;
+    switchButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    [switchButton setTitle:@"切换应用" forState:UIControlStateNormal];
+    switchButton.titleLabel.font = [UIFont systemFontOfSize:14 weight:UIFontWeightSemibold];
+    [switchButton addTarget:self action:@selector(toggleExpandedSwitchMenu) forControlEvents:UIControlEventTouchUpInside];
+    [_drawerControls addSubview:switchButton];
+    zoomButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    [zoomButton setTitle:@"输入放大" forState:UIControlStateNormal];
+    zoomButton.titleLabel.font = [UIFont systemFontOfSize:14 weight:UIFontWeightSemibold];
+    [zoomButton addTarget:self action:@selector(toggleInputZoom) forControlEvents:UIControlEventTouchUpInside];
+    [_drawerControls addSubview:zoomButton];
+    [self.view addSubview:_drawerControls];
+    _expandedSwitchMenu = [[QuickSwitchTableView alloc] initWithDarkMode:self.handle.darkMode];
+    _expandedSwitchMenu.selectionDelegate = self;
+    [self.view addSubview:_expandedSwitchMenu];
+    if ([[POApplicationHelper settings][@"leftHanded"] boolValue]) {
+        switchButton.titleLabel.transform = CGAffineTransformMakeScale(-1, 1);
+        zoomButton.titleLabel.transform = CGAffineTransformMakeScale(-1, 1);
+    }
     
     if ([[POApplicationHelper state] stringForKey:@"lastPinnedBundleId"]) {
         pinnedBundleId = [[POApplicationHelper state] stringForKey:@"lastPinnedBundleId"];
@@ -256,11 +285,18 @@
     CGFloat height = CGRectGetHeight(bounds);
     CGFloat panelHeight = MAX(1, height - safeInsets.top - safeInsets.bottom);
     CGFloat panelWidth = MAX(1, width - HANDLE_MARGIN - MAX(safeInsets.left, safeInsets.right));
-    if (width > height) panelWidth = MIN(panelWidth, MAX(180, panelHeight * 0.65));
+    BOOL landscape = width > height;
+    if (!landscape) inputZoom = NO;
+    if (landscape) {
+        CGFloat desiredWidth = inputZoom ? width * 0.65 : MAX(220, panelHeight * 0.85);
+        panelWidth = MIN(panelWidth, desiredWidth);
+    }
+    CGFloat controlsHeight = 44;
     CGFloat progress = drawerTravel > 0 ? MIN(1, MAX(0, scrollView.contentOffset.x / drawerTravel)) : 0;
     CGFloat oldMaximum = MAX(0, handleScrollView.contentSize.height - handleScrollView.bounds.size.height);
     CGFloat relativeY = oldMaximum > 0 ? MIN(1, MAX(0, handleScrollView.contentOffset.y / oldMaximum)) : 0;
     [self.quickSwitchTableView cancelPresentation];
+    [self.expandedSwitchMenu cancelPresentation];
     updatingLayout = YES;
     CGFloat trailingInset = width > height ? MAX(safeInsets.left, safeInsets.right) : 0;
     drawerTravel = panelWidth + trailingInset;
@@ -285,7 +321,7 @@
     handleFrame = self.handle.frame;
     handlePoint = handleScrollView.contentOffset;
 
-    self.contentView.frame = CGRectMake(width, safeInsets.top, panelWidth, panelHeight);
+    self.contentView.frame = CGRectMake(width, safeInsets.top + controlsHeight, panelWidth, MAX(1, panelHeight - controlsHeight));
     activityIndicator.center = CGPointMake(CGRectGetMidX(self.contentView.bounds), CGRectGetMidY(self.contentView.bounds));
 
     lastLayoutBounds = bounds;
@@ -293,7 +329,45 @@
 
     [scrollView setContentOffset:CGPointMake(progress * drawerTravel, 0) animated:NO];
     updatingLayout = NO;
+    self.backgroundView.alpha = landscape && [[POApplicationHelper settings][@"landscapeTouchThrough"] boolValue] ? 0 : progress * (landscape ? 0.35 : 1);
+    [self updateDrawerControls];
     if (contextView) [self layoutContextView];
+}
+
+-(void)updateDrawerControls{
+    if (!self.drawerControls || !self.contentView) return;
+    BOOL landscape = CGRectGetWidth(self.view.bounds) > CGRectGetHeight(self.view.bounds);
+    CGRect panel = [self.contentView convertRect:self.contentView.bounds toView:self.view];
+    self.drawerControls.hidden = !self.isOpened;
+    self.drawerControls.frame = CGRectMake(CGRectGetMinX(panel), CGRectGetMinY(panel) - 44, CGRectGetWidth(panel), 44);
+    CGFloat switchWidth = landscape ? CGRectGetWidth(panel) / 2 : CGRectGetWidth(panel);
+    switchButton.frame = CGRectMake(0, 0, switchWidth, 44);
+    zoomButton.hidden = !landscape;
+    zoomButton.frame = CGRectMake(switchWidth, 0, CGRectGetWidth(panel) - switchWidth, 44);
+    [zoomButton setTitle:inputZoom ? @"恢复浮窗" : @"输入放大" forState:UIControlStateNormal];
+}
+
+-(void)toggleExpandedSwitchMenu{
+    if (!self.isOpened || !presentationAllowed || isInvalidated) return;
+    if (self.expandedSwitchMenu.isPresented) {
+        [self.expandedSwitchMenu cancelPresentation];
+        return;
+    }
+    [self.quickSwitchTableView cancelPresentation];
+    CGRect panel = [self.contentView convertRect:self.contentView.bounds toView:self.view];
+    if (![self.expandedSwitchMenu presentForTapSelectionInFrame:panel]) {
+        [switchButton setTitle:@"暂无应用" forState:UIControlStateNormal];
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+            [self->switchButton setTitle:@"切换应用" forState:UIControlStateNormal];
+        });
+    }
+}
+
+-(void)toggleInputZoom{
+    if (!self.isOpened || !presentationAllowed || CGRectGetWidth(self.view.bounds) <= CGRectGetHeight(self.view.bounds)) return;
+    [self.expandedSwitchMenu cancelPresentation];
+    inputZoom = !inputZoom;
+    [self updateLayoutForCurrentBounds];
 }
 
 -(void)keyboardWillShow:(NSNotification *)notification{
@@ -321,7 +395,15 @@
 -(void)pinAppWithBundleId:(NSString *)bundleId{
     if (![bundleId isKindOfClass:[NSString class]] || bundleId.length == 0 || isInvalidated || !presentationAllowed) return;
     POLog(@"pin %@ (front=%@)", bundleId, [POApplicationHelper frontMostBundleId]);
-    if (self.isOpened && ![pinnedBundleId isEqualToString:bundleId]) [self endHosting];
+    if (self.isOpened && [[POApplicationHelper frontMostBundleId] isEqualToString:bundleId]) {
+        [self close];
+        return;
+    }
+    if (self.isOpened && [pinnedBundleId isEqualToString:bundleId]) {
+        [self retryHostingIfNeeded];
+        return;
+    }
+    if (self.isOpened) [self endHosting];
     pinnedBundleId = bundleId;
     NSUInteger generation = ++pinGeneration;
     
@@ -336,7 +418,7 @@
         else if ([sb respondsToSelector:@selector(_simulateHomeButtonPress)]) [sb _simulateHomeButtonPress];
     }else{
         if (self.isOpened) {
-            [self refreshHosting];
+            [self beginHosting];
             return;
         }
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
@@ -357,6 +439,7 @@
 -(void)close{
     pinGeneration++;
     [self.quickSwitchTableView cancelPresentation];
+    [self.expandedSwitchMenu cancelPresentation];
     [scrollView setContentOffset:CGPointZero animated:YES];
 }
 
@@ -379,6 +462,10 @@
 }
 
 -(void)handle:(POHandle *)handle didLongPress:(UILongPressGestureRecognizer *)recognizer{
+    if (presentationAllowed && self.isOpened) {
+        if (recognizer.state == UIGestureRecognizerStateBegan) [self toggleExpandedSwitchMenu];
+        return;
+    }
     if (presentationAllowed && !self.isOpened) {
         if (recognizer.state == UIGestureRecognizerStateBegan) {
             [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(autoNubAfterDelay) object:nil];
@@ -540,7 +627,9 @@
         CGFloat denominator = MAX(1, drawerTravel);
         CGFloat progress = scrollView.contentOffset.x / denominator;
         CGFloat visibleProgress = MIN(1, MAX(0, progress));
-        self.backgroundView.alpha = visibleProgress * (self.view.bounds.size.width > self.view.bounds.size.height ? 0.35 : 1);
+        BOOL landscape = self.view.bounds.size.width > self.view.bounds.size.height;
+        BOOL touchThrough = landscape && [[POApplicationHelper settings][@"landscapeTouchThrough"] boolValue];
+        self.backgroundView.alpha = touchThrough ? 0 : visibleProgress * (landscape ? 0.35 : 1);
         [self updateHandleVisibility:visibleProgress];
 
         if (suppressHostingUntilClosed) {
@@ -552,6 +641,8 @@
             self.isOpened = presentationAllowed && progress > 0.01;
         }
 
+        if (self.expandedSwitchMenu.isPresented) [self.expandedSwitchMenu cancelPresentation];
+        [self updateDrawerControls];
         if (progress < -0.01) {
             if (!self.handle.isNubbed) {
                 self.handle.isNubbed = YES;
@@ -579,9 +670,15 @@
         [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(autoNubAfterDelay) object:nil];
         [self beginHosting];
     }else{
+        [self.expandedSwitchMenu cancelPresentation];
         [self endHosting];
+        if (inputZoom) {
+            inputZoom = NO;
+            [self updateLayoutForCurrentBounds];
+        }
         [self scheduleAutoNub];
     }
+    [self updateDrawerControls];
 }
 
 -(void)scheduleAutoNub{
@@ -621,12 +718,19 @@
     if (sourceSize.width <= 0 || sourceSize.height <= 0) sourceSize = [UIScreen mainScreen].bounds.size;
     CGFloat fitScale = MIN(CGRectGetWidth(self.contentView.bounds) / MAX(1, sourceSize.width),
                            CGRectGetHeight(self.contentView.bounds) / MAX(1, sourceSize.height));
+    // Input mode enlarges the hosted scene to its available width and keeps
+    // the bottom (composer and embedded keyboard) in view. Normal mode fits all content.
+    if (inputZoom) fitScale = MIN(1.0, CGRectGetWidth(self.contentView.bounds) / MAX(1, sourceSize.width));
     fitScale = MAX(0.01, fitScale);
 
     if (newlyAttached) [self.contentView addSubview:contextView];
     contextView.transform = CGAffineTransformIdentity;
     contextView.bounds = CGRectMake(0, 0, sourceSize.width, sourceSize.height);
-    contextView.center = CGPointMake(CGRectGetMidX(self.contentView.bounds), CGRectGetMidY(self.contentView.bounds));
+    CGFloat centerY = CGRectGetMidY(self.contentView.bounds);
+    if (inputZoom && sourceSize.height * fitScale > CGRectGetHeight(self.contentView.bounds)) {
+        centerY = CGRectGetHeight(self.contentView.bounds) - sourceSize.height * fitScale / 2;
+    }
+    contextView.center = CGPointMake(CGRectGetMidX(self.contentView.bounds), centerY);
     CGAffineTransform transform = CGAffineTransformMakeScale(fitScale, fitScale);
     if ([[POApplicationHelper settings][@"leftHanded"] boolValue]) {
         transform = CGAffineTransformConcat(transform, CGAffineTransformMakeScale(-1.0, 1.0));
@@ -727,6 +831,7 @@
 -(void)closeAndStopHosting{
     pinGeneration++;
     [self.quickSwitchTableView cancelPresentation];
+    [self.expandedSwitchMenu cancelPresentation];
     BOOL wasOpened = self.isOpened;
     suppressHostingUntilClosed = YES;
     self.isOpened = NO;
@@ -744,6 +849,7 @@
     isInvalidated = YES;
     presentationAllowed = NO;
     [self.quickSwitchTableView cancelPresentation];
+    [self.expandedSwitchMenu cancelPresentation];
     pinGeneration++;
     suppressHostingUntilClosed = YES;
     [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(autoNubAfterDelay) object:nil];
