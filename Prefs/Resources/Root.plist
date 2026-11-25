@@ -269,6 +269,48 @@
 			<key>defaults</key>
 			<string>com.johndie.pulloverpro-rootless</string>
 			<key>key</key>
+			<string>directTwoFinger</string>
+			<key>label</key>
+			<string>画面直接双指（实验）</string>
+			<key>PostNotification</key>
+			<string>com.johndie.pulloverpro-rootless/changed</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<false/>
+			<key>defaults</key>
+			<string>com.johndie.pulloverpro-rootless</string>
+			<key>key</key>
+			<string>deferredTwoFinger</string>
+			<key>label</key>
+			<string>双指松手应用（防抖备用）</string>
+			<key>PostNotification</key>
+			<string>com.johndie.pulloverpro-rootless/changed</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<true/>
+			<key>defaults</key>
+			<string>com.johndie.pulloverpro-rootless</string>
+			<key>key</key>
+			<string>gestureBar</string>
+			<key>label</key>
+			<string>常驻双指手势条</string>
+			<key>PostNotification</key>
+			<string>com.johndie.pulloverpro-rootless/changed</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<true/>
+			<key>defaults</key>
+			<string>com.johndie.pulloverpro-rootless</string>
+			<key>key</key>
 			<string>hapticFeedback</string>
 			<key>label</key>
 			<string>触感反馈</string>

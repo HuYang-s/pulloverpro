@@ -7,11 +7,17 @@
 
 #import "PullOverViewController.h"
 #import "POLog.h"
+#import "POTwoFingerTransformGestureRecognizer.h"
+#import "POTransformMath.h"
+#import "POKeyboardComposer.h"
+#import "POFloatingKeyboard.h"
+#import "POKeyboardBridge.h"
+#import "PORemoteGestureBridge.h"
+#import "../Shared/POGestureChannel.h"
+#import "../Shared/POGestureStabilizer.h"
 
 #define HANDLE_MARGIN 50
 #define HALF_OPEN_HEIGHT 400
-
-
 
 @interface PODrawerScrollView : UIScrollView
 @property (nonatomic, weak) UIView *hostedContent;
@@ -52,7 +58,43 @@
     BOOL presentationAllowed;
     BOOL updatingLayout;
     BOOL inputZoom;
+    CGFloat userScale;
+    CGFloat contextBaseScale;
+    CGFloat gestureStartScale;
+    CGPoint userOffset;
+    CGPoint contextBaseCenter;
+    CGPoint gestureStartOffset;
+    CGSize transformViewport;
+    NSMutableDictionary<NSString *, NSDictionary *> *appTransforms;
+    BOOL transformEnabled;
+    BOOL hostInteractionSaved;
+    BOOL hostWasInteractive;
+    UILabel *transformStatus;
+    UIButton *minusButton;
+    UIButton *plusButton;
+    UIButton *transformButton;
+    UIButton *resetButton;
+    POTwoFingerTransformGestureRecognizer *transformGestureRecognizer;
+    POTwoFingerTransformGestureRecognizer *directGestureRecognizer;
+    POTwoFingerTransformGestureRecognizer *barGestureRecognizer;
+    __weak UIGestureRecognizer *activeTransformGesture;
+    UIPanGestureRecognizer *barPan;
+    UILabel *gestureBarLabel;
+    BOOL autoDirectGestures;
+    PORemoteGestureBridge *remoteBridge;
+    uint8_t lastRemoteGesture;
+    BOOL remoteGestureActive;
+    CGFloat remoteStartScale;
+    CGPoint remoteStartOffset;
+    CFTimeInterval remoteLastEvent;
+    POStableSample remoteFiltered;
+    BOOL remoteDeferred;
+    BOOL showGestureBar;
     UIButton *zoomButton;
+    UIButton *keyboardButton;
+    POKeyboardComposer *keyboardComposer;
+    POKeyboardBridge *keyboardBridge;
+    BOOL toolsVisible;
     UIButton *switchButton;
     CGFloat drawerTravel;
     NSUInteger hostingGeneration;
@@ -64,8 +106,32 @@
 - (void)updateDrawerControls;
 - (void)toggleExpandedSwitchMenu;
 - (void)toggleInputZoom;
+- (void)openLargeKeyboard;
+- (void)toggleTools;
+- (void)hideFloatingKeyboard;
+- (void)openNativeComposer;
 - (void)scheduleAutoNub;
 - (void)layoutContextView;
+- (void)applyContextTransform;
+- (void)toggleTransformMode;
+- (void)setTransformEditing:(BOOL)enabled;
+- (void)updateTransformStatus;
+- (void)updateTransformGestureAvailability;
+- (void)cancelTransformGestures;
+- (BOOL)canTransformHostedScene;
+- (void)updateRemoteBridge;
+- (void)publishRemoteGeometry;
+- (void)stopRemoteBridge;
+- (void)handleRemoteTransform:(PORemoteTransform)event;
+- (void)zoomInStep;
+- (void)zoomOutStep;
+- (void)changeZoomBy:(CGFloat)factor;
+- (void)handleLocalPan:(UIPanGestureRecognizer *)recognizer;
+- (void)resetContextTransform;
+- (void)saveAppTransform;
+- (void)restoreAppTransform:(NSString *)bundleId;
+- (CGPoint)clampedContextOffset:(CGPoint)offset;
+- (void)handleTwoFingerTransform:(POTwoFingerTransformGestureRecognizer *)recognizer;
 - (void)attemptHostingForGeneration:(NSUInteger)generation;
 - (void)showHostingMessage:(NSString *)message symbolName:(NSString *)symbolName generation:(NSUInteger)generation;
 
@@ -78,6 +144,15 @@
     [super viewDidLoad];
     
     scale = 1.0;
+    userScale = 1.0;
+    transformEnabled = NO;
+    autoDirectGestures = [[POApplicationHelper settings][@"directTwoFinger"] boolValue];
+    remoteDeferred = [[POApplicationHelper settings][@"deferredTwoFinger"] boolValue];
+    showGestureBar = [[POApplicationHelper settings][@"gestureBar"] boolValue];
+    appTransforms = [NSMutableDictionary dictionary];
+    remoteBridge = [PORemoteGestureBridge new];
+    keyboardComposer = [POKeyboardComposer new];
+    keyboardBridge = [POKeyboardBridge new];
 
     self.backgroundView = [[UIView alloc] initWithFrame:self.view.bounds];
     self.backgroundView.backgroundColor = [UIColor colorWithWhite:0 alpha:0.5];
@@ -177,6 +252,7 @@
     }
     self.contentView.layer.cornerRadius = 12;
     self.contentView.clipsToBounds = YES;
+    self.contentView.multipleTouchEnabled = YES;
     
     activityIndicator = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleLarge];
     activityIndicator.color = [UIColor whiteColor];
@@ -192,6 +268,87 @@
     [scrollView addSubview:self.contentView];
     ((PODrawerScrollView *)scrollView).hostedContent = self.contentView;
 
+    transformGestureRecognizer = [[POTwoFingerTransformGestureRecognizer alloc] initWithTarget:self action:@selector(handleTwoFingerTransform:)];
+    transformGestureRecognizer.delegate = self;
+    transformGestureRecognizer.cancelsTouchesInView = YES;
+    transformGestureRecognizer.delaysTouchesBegan = NO;
+    transformGestureRecognizer.delaysTouchesEnded = NO;
+    // A SpringBoard-owned surface, separate from the remote presentation view.
+    // While editing, it captures input rather than asking the hosted app to forward touches.
+    _transformSurface = [[UIView alloc] initWithFrame:CGRectZero];
+    _transformSurface.hidden = YES;
+    _transformSurface.multipleTouchEnabled = YES;
+    _transformSurface.backgroundColor = [UIColor colorWithWhite:0 alpha:0.06];
+    _transformSurface.layer.borderWidth = 2;
+    _transformSurface.layer.borderColor = [UIColor systemBlueColor].CGColor;
+    _transformSurface.layer.cornerRadius = 12;
+    _transformSurface.clipsToBounds = YES;
+    [self.view addSubview:_transformSurface];
+    [_transformSurface addGestureRecognizer:transformGestureRecognizer];
+    transformGestureRecognizer.coordinateView = self.contentView;
+    transformGestureRecognizer.enabled = NO;
+    UIPanGestureRecognizer *localPan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handleLocalPan:)];
+    localPan.minimumNumberOfTouches = 1;
+    localPan.maximumNumberOfTouches = 1;
+    localPan.delegate = self;
+    [localPan requireGestureRecognizerToFail:transformGestureRecognizer];
+    [_transformSurface addGestureRecognizer:localPan];
+    transformStatus = [[UILabel alloc] initWithFrame:CGRectZero];
+    transformStatus.textAlignment = NSTextAlignmentCenter;
+    transformStatus.font = [UIFont monospacedDigitSystemFontOfSize:12 weight:UIFontWeightSemibold];
+    transformStatus.textColor = UIColor.whiteColor;
+    transformStatus.backgroundColor = [UIColor colorWithWhite:0 alpha:0.72];
+    transformStatus.layer.cornerRadius = 8;
+    transformStatus.clipsToBounds = YES;
+    transformStatus.adjustsFontSizeToFitWidth = YES;
+    transformStatus.minimumScaleFactor = 0.7;
+    transformStatus.userInteractionEnabled = NO;
+    [_transformSurface addSubview:transformStatus];
+
+    // Dedicated local hit region. It remains active without an explicit edit mode.
+    _gestureBar = [[UIView alloc] initWithFrame:CGRectZero];
+    _gestureBar.hidden = YES;
+    _gestureBar.multipleTouchEnabled = YES;
+    _gestureBar.backgroundColor = UIColor.secondarySystemBackgroundColor;
+    _gestureBar.layer.cornerRadius = 9;
+    _gestureBar.clipsToBounds = YES;
+    _gestureBar.isAccessibilityElement = NO;
+    [self.view addSubview:_gestureBar];
+    gestureBarLabel = [[UILabel alloc] initWithFrame:CGRectZero];
+    gestureBarLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    gestureBarLabel.textAlignment = NSTextAlignmentCenter;
+    gestureBarLabel.font = [UIFont systemFontOfSize:12 weight:UIFontWeightSemibold];
+    gestureBarLabel.textColor = UIColor.secondaryLabelColor;
+    gestureBarLabel.adjustsFontSizeToFitWidth = YES;
+    gestureBarLabel.minimumScaleFactor = 0.65;
+    gestureBarLabel.userInteractionEnabled = NO;
+    gestureBarLabel.accessibilityLabel = @"双指缩放与拖动手势条";
+    [_gestureBar addSubview:gestureBarLabel];
+
+    barGestureRecognizer = [[POTwoFingerTransformGestureRecognizer alloc] initWithTarget:self action:@selector(handleTwoFingerTransform:)];
+    barGestureRecognizer.coordinateView = self.contentView;
+    barGestureRecognizer.delegate = self;
+    barGestureRecognizer.cancelsTouchesInView = YES;
+    barGestureRecognizer.enabled = NO;
+    [_gestureBar addGestureRecognizer:barGestureRecognizer];
+    barPan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handleLocalPan:)];
+    barPan.minimumNumberOfTouches = 1;
+    barPan.maximumNumberOfTouches = 1;
+    barPan.delegate = self;
+    barPan.enabled = NO;
+    [barPan requireGestureRecognizerToFail:barGestureRecognizer];
+    [_gestureBar addGestureRecognizer:barPan];
+
+    // Best-effort direct path: attach to the actual presentation view rather
+    // than its ancestor; this is limited to UIKit events delivered locally.
+    directGestureRecognizer = [[POTwoFingerTransformGestureRecognizer alloc] initWithTarget:self action:@selector(handleTwoFingerTransform:)];
+    directGestureRecognizer.coordinateView = self.contentView;
+    directGestureRecognizer.delegate = self;
+    directGestureRecognizer.cancelsTouchesInView = YES;
+    directGestureRecognizer.delaysTouchesBegan = NO;
+    directGestureRecognizer.delaysTouchesEnded = NO;
+    directGestureRecognizer.enabled = NO;
+
     _drawerControls = [[UIView alloc] initWithFrame:CGRectZero];
     _drawerControls.backgroundColor = [UIColor secondarySystemBackgroundColor];
     _drawerControls.layer.cornerRadius = 10;
@@ -206,6 +363,44 @@
     zoomButton.titleLabel.font = [UIFont systemFontOfSize:14 weight:UIFontWeightSemibold];
     [zoomButton addTarget:self action:@selector(toggleInputZoom) forControlEvents:UIControlEventTouchUpInside];
     [_drawerControls addSubview:zoomButton];
+    keyboardButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    [keyboardButton setTitle:@"键盘" forState:UIControlStateNormal];
+    keyboardButton.titleLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
+    keyboardButton.titleLabel.adjustsFontSizeToFitWidth = YES;
+    keyboardButton.titleLabel.minimumScaleFactor = 0.65;
+    keyboardButton.accessibilityLabel = @"浮动键盘";
+    [keyboardButton addTarget:self action:@selector(openLargeKeyboard) forControlEvents:UIControlEventTouchUpInside];
+    [_drawerControls addSubview:keyboardButton];
+    transformButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    transformButton.titleLabel.font = [UIFont systemFontOfSize:12 weight:UIFontWeightSemibold];
+    transformButton.accessibilityLabel = @"双指浮窗变换";
+    [transformButton addTarget:self action:@selector(toggleTransformMode) forControlEvents:UIControlEventTouchUpInside];
+    [_drawerControls addSubview:transformButton];
+    resetButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    resetButton.titleLabel.font = [UIFont systemFontOfSize:12 weight:UIFontWeightSemibold];
+    [resetButton setTitle:@"复位" forState:UIControlStateNormal];
+    resetButton.accessibilityLabel = @"恢复浮窗默认缩放和位置";
+    [resetButton addTarget:self action:@selector(resetContextTransform) forControlEvents:UIControlEventTouchUpInside];
+    [_drawerControls addSubview:resetButton];
+    minusButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    plusButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    [minusButton setTitle:@"−" forState:UIControlStateNormal];
+    [plusButton setTitle:@"＋" forState:UIControlStateNormal];
+    minusButton.accessibilityLabel = @"缩小画面";
+    plusButton.accessibilityLabel = @"放大画面";
+    for (UIButton *button in @[minusButton, plusButton]) {
+        button.titleLabel.font = [UIFont systemFontOfSize:20 weight:UIFontWeightSemibold];
+        button.hidden = YES;
+        [_drawerControls addSubview:button];
+    }
+    [minusButton addTarget:self action:@selector(zoomOutStep) forControlEvents:UIControlEventTouchUpInside];
+    [plusButton addTarget:self action:@selector(zoomInStep) forControlEvents:UIControlEventTouchUpInside];
+    switchButton.accessibilityLabel = @"切换浮窗应用";
+    zoomButton.accessibilityLabel = @"横屏输入放大";
+    for (UIButton *button in @[switchButton, zoomButton, transformButton, resetButton]) {
+        button.titleLabel.adjustsFontSizeToFitWidth = YES;
+        button.titleLabel.minimumScaleFactor = 0.65;
+    }
     [self.view addSubview:_drawerControls];
     _expandedSwitchMenu = [[QuickSwitchTableView alloc] initWithDarkMode:self.handle.darkMode];
     _expandedSwitchMenu.selectionDelegate = self;
@@ -213,6 +408,13 @@
     if ([[POApplicationHelper settings][@"leftHanded"] boolValue]) {
         switchButton.titleLabel.transform = CGAffineTransformMakeScale(-1, 1);
         zoomButton.titleLabel.transform = CGAffineTransformMakeScale(-1, 1);
+        keyboardButton.titleLabel.transform = CGAffineTransformMakeScale(-1, 1);
+        transformButton.titleLabel.transform = CGAffineTransformMakeScale(-1, 1);
+        resetButton.titleLabel.transform = CGAffineTransformMakeScale(-1, 1);
+        minusButton.titleLabel.transform = CGAffineTransformMakeScale(-1, 1);
+        plusButton.titleLabel.transform = CGAffineTransformMakeScale(-1, 1);
+        transformStatus.transform = CGAffineTransformMakeScale(-1, 1);
+        gestureBarLabel.transform = CGAffineTransformMakeScale(-1, 1);
     }
     
     if ([[POApplicationHelper state] stringForKey:@"lastPinnedBundleId"]) {
@@ -291,7 +493,10 @@
         CGFloat desiredWidth = inputZoom ? width * 0.65 : MAX(220, panelHeight * 0.85);
         panelWidth = MIN(panelWidth, desiredWidth);
     }
-    CGFloat controlsHeight = 44;
+    // No reserved menu or gesture-status rows; temporary controls overlay content.
+    CGFloat controlsHeight = 0;
+    CGFloat gestureBarHeight = 0;
+    [self cancelTransformGestures];
     CGFloat progress = drawerTravel > 0 ? MIN(1, MAX(0, scrollView.contentOffset.x / drawerTravel)) : 0;
     CGFloat oldMaximum = MAX(0, handleScrollView.contentSize.height - handleScrollView.bounds.size.height);
     CGFloat relativeY = oldMaximum > 0 ? MIN(1, MAX(0, handleScrollView.contentOffset.y / oldMaximum)) : 0;
@@ -321,7 +526,7 @@
     handleFrame = self.handle.frame;
     handlePoint = handleScrollView.contentOffset;
 
-    self.contentView.frame = CGRectMake(width, safeInsets.top + controlsHeight, panelWidth, MAX(1, panelHeight - controlsHeight));
+    self.contentView.frame = CGRectMake(width, safeInsets.top + controlsHeight, panelWidth, MAX(1, panelHeight - controlsHeight - gestureBarHeight));
     activityIndicator.center = CGPointMake(CGRectGetMidX(self.contentView.bounds), CGRectGetMidY(self.contentView.bounds));
 
     lastLayoutBounds = bounds;
@@ -338,19 +543,51 @@
     if (!self.drawerControls || !self.contentView) return;
     BOOL landscape = CGRectGetWidth(self.view.bounds) > CGRectGetHeight(self.view.bounds);
     CGRect panel = [self.contentView convertRect:self.contentView.bounds toView:self.view];
-    self.drawerControls.hidden = !self.isOpened;
-    self.drawerControls.frame = CGRectMake(CGRectGetMinX(panel), CGRectGetMinY(panel) - 44, CGRectGetWidth(panel), 44);
-    CGFloat switchWidth = landscape ? CGRectGetWidth(panel) / 2 : CGRectGetWidth(panel);
-    switchButton.frame = CGRectMake(0, 0, switchWidth, 44);
-    zoomButton.hidden = !landscape;
-    zoomButton.frame = CGRectMake(switchWidth, 0, CGRectGetWidth(panel) - switchWidth, 44);
-    [zoomButton setTitle:inputZoom ? @"恢复浮窗" : @"输入放大" forState:UIControlStateNormal];
+    self.drawerControls.hidden = !self.isOpened || !(toolsVisible || transformEnabled);
+    self.drawerControls.frame = CGRectMake(CGRectGetMinX(panel), CGRectGetMinY(panel), CGRectGetWidth(panel), 44);
+    CGFloat width = CGRectGetWidth(panel);
+    NSArray<UIButton *> *buttons = transformEnabled ? @[minusButton, plusButton, transformButton, resetButton] :
+        (landscape ? @[switchButton, keyboardButton, zoomButton, transformButton, resetButton] : @[switchButton, keyboardButton, transformButton, resetButton]);
+    switchButton.hidden = transformEnabled;
+    zoomButton.hidden = transformEnabled || !landscape;
+    keyboardButton.hidden = transformEnabled;
+    keyboardButton.enabled = contextView != nil && presentationAllowed;
+    minusButton.hidden = !transformEnabled;
+    plusButton.hidden = !transformEnabled;
+    self.transformSurface.frame = panel;
+    self.transformSurface.hidden = !transformEnabled || !self.isOpened || !contextView;
+    CGFloat barHeight = showGestureBar ? MIN(44, MAX(0, CGRectGetHeight(self.view.bounds) - lastSafeAreaInsets.bottom - CGRectGetMaxY(panel))) : 0;
+    self.gestureBar.frame = CGRectMake(CGRectGetMinX(panel), CGRectGetMaxY(panel), width, barHeight);
+    gestureBarLabel.bounds = self.gestureBar.bounds;
+    gestureBarLabel.center = CGPointMake(width / 2, barHeight / 2);
+    self.gestureBar.hidden = YES;
+    if (self.floatingKeyboard && !self.floatingKeyboard.hidden) [(POFloatingKeyboard *)self.floatingKeyboard placeInBounds:self.view.bounds safeInsets:lastSafeAreaInsets];
+    [self updateTransformGestureAvailability];
+    CGFloat statusWidth = MIN(220, MAX(1, width - 16));
+    transformStatus.bounds = CGRectMake(0, 0, statusWidth, 28);
+    transformStatus.center = CGPointMake(width / 2, 20);
+    [self updateTransformStatus];
+    [self.view bringSubviewToFront:self.drawerControls];
+    if (_floatingKeyboard) [self.view bringSubviewToFront:_floatingKeyboard];
+    if (self.expandedSwitchMenu.isPresented) [self.view bringSubviewToFront:self.expandedSwitchMenu];
+    CGFloat cellWidth = width / buttons.count;
+    for (NSUInteger i = 0; i < buttons.count; i++) {
+        buttons[i].frame = CGRectMake(i * cellWidth, 0, cellWidth, 44);
+    }
+    [zoomButton setTitle:inputZoom ? @"恢复" : @"放大" forState:UIControlStateNormal];
+    [transformButton setTitle:transformEnabled ? @"完成" : @"调整" forState:UIControlStateNormal];
+    transformButton.accessibilityValue = transformEnabled ? @"画面调整中" : @"普通应用操作";
+    transformButton.enabled = contextView != nil || transformEnabled;
+    transformButton.tintColor = transformEnabled ? [UIColor systemBlueColor] : [UIColor secondaryLabelColor];
 }
 
 -(void)toggleExpandedSwitchMenu{
     if (!self.isOpened || !presentationAllowed || isInvalidated) return;
+    [self hideFloatingKeyboard];
+    if (transformEnabled) [self setTransformEditing:NO];
     if (self.expandedSwitchMenu.isPresented) {
         [self.expandedSwitchMenu cancelPresentation];
+        [self updateDrawerControls];
         return;
     }
     [self.quickSwitchTableView cancelPresentation];
@@ -361,6 +598,58 @@
             [self->switchButton setTitle:@"切换应用" forState:UIControlStateNormal];
         });
     }
+    [self updateDrawerControls];
+}
+
+-(void)toggleTools {
+    if (!self.isOpened) return;
+    if (transformEnabled) {[self setTransformEditing:NO];toolsVisible=NO;}
+    else toolsVisible=!toolsVisible;
+    [self updateDrawerControls];
+}
+-(void)hideFloatingKeyboard {
+    [keyboardBridge stop];
+    [_floatingKeyboard removeFromSuperview];
+    _floatingKeyboard=nil;
+}
+-(void)openLargeKeyboard {
+    if (![self canTransformHostedScene] || transformEnabled || keyboardComposer.isPresented) return;
+    if (_floatingKeyboard) {[self hideFloatingKeyboard];return;}
+    toolsVisible=NO;
+    [self updateDrawerControls];
+    POFloatingKeyboard *floating=[[POFloatingKeyboard alloc] initWithFrame:CGRectZero];
+    _floatingKeyboard=floating;
+    // Counter the left-hand mirror so key labels and drag direction remain natural.
+    if ([[POApplicationHelper settings][@"leftHanded"] boolValue]) floating.transform=CGAffineTransformMakeScale(-1,1);
+    [self.view addSubview:floating];
+    [floating placeInBounds:self.view.bounds safeInsets:lastSafeAreaInsets];
+    __weak typeof(self) weakSelf=self;
+    __weak POFloatingKeyboard *weakFloating=floating;
+    floating.dismissHandler=^{[weakSelf hideFloatingKeyboard];};
+    [keyboardBridge startForBundle:pinnedBundleId status:^(POKeyStatus status){[weakFloating reportStatus:status];}];
+    floating.keyHandler=^BOOL(NSInteger key){
+        PullOverViewController *s=weakSelf;
+        if(!s || ![s canTransformHostedScene] || s->transformEnabled || s.floatingKeyboard!=weakFloating)return NO;
+        return [s->keyboardBridge sendKey:key];
+    };
+    floating.nativeHandler=^{[weakSelf hideFloatingKeyboard];[weakSelf openNativeComposer];};
+}
+-(void)openNativeComposer {
+    if (![self canTransformHostedScene] || transformEnabled || keyboardComposer.isPresented) return;
+    [self.expandedSwitchMenu cancelPresentation];
+    [self cancelTransformGestures];
+    __weak typeof(self) weakSelf = self;
+    if (![keyboardComposer presentFromWindow:self.view.window completion:^(BOOL copied){
+        PullOverViewController *strongSelf=weakSelf;
+        if (!strongSelf || strongSelf->isInvalidated) return;
+        [strongSelf updateDrawerControls];
+        if (copied && strongSelf.isOpened) {
+            [strongSelf->keyboardButton setTitle:@"已复制" forState:UIControlStateNormal];
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(1.8*NSEC_PER_SEC)),dispatch_get_main_queue(),^{
+                [strongSelf->keyboardButton setTitle:@"大键盘" forState:UIControlStateNormal];
+            });
+        }
+    }]) [self updateDrawerControls];
 }
 
 -(void)toggleInputZoom{
@@ -368,6 +657,269 @@
     [self.expandedSwitchMenu cancelPresentation];
     inputZoom = !inputZoom;
     [self updateLayoutForCurrentBounds];
+}
+
+-(BOOL)canTransformHostedScene {
+    return self.isOpened && presentationAllowed && !isInvalidated && !keyboardComposer.isPresented && !self.expandedSwitchMenu.isPresented && contextView != nil &&
+        [[ContextHostManager sharedInstance] isHostViewHosting:contextView];
+}
+
+-(void)updateTransformGestureAvailability {
+    BOOL available = [self canTransformHostedScene];
+    BOOL supported = POGestureBundleSupported(pinnedBundleId);
+    BOOL direct = available && autoDirectGestures && !transformEnabled && !supported;
+    [self updateRemoteBridge];
+    BOOL bar = available && !self.gestureBar.hidden && showGestureBar;
+    BOOL edit = available && transformEnabled;
+    if (directGestureRecognizer.enabled != direct) directGestureRecognizer.enabled = direct;
+    if (barGestureRecognizer.enabled != bar) barGestureRecognizer.enabled = bar;
+    if (barPan.enabled != bar) barPan.enabled = bar;
+    if (transformGestureRecognizer.enabled != edit) transformGestureRecognizer.enabled = edit;
+}
+
+-(void)stopRemoteBridge {
+    [remoteBridge stop];
+    remoteGestureActive = NO;
+    lastRemoteGesture = 0;
+    remoteLastEvent = 0;
+    remoteFiltered = (POStableSample){1,0,0};
+}
+
+-(void)publishRemoteGeometry {
+    if (!remoteBridge.bundle || !contextView || remoteGestureActive) return;
+    CGFloat effectiveScale = MAX(0.01, contextBaseScale * userScale);
+    if ([[POApplicationHelper settings][@"leftHanded"] boolValue]) effectiveScale = -effectiveScale;
+    [remoteBridge publishScale:effectiveScale centerX:contextBaseCenter.x+userOffset.x centerY:contextBaseCenter.y+userOffset.y];
+}
+
+-(void)updateRemoteBridge {
+    BOOL allowed = autoDirectGestures && !transformEnabled && [self canTransformHostedScene] &&
+        POGestureBundleSupported(pinnedBundleId) && ![[POApplicationHelper frontMostBundleId] isEqualToString:pinnedBundleId];
+    if (!allowed) { if (remoteBridge.bundle) [self stopRemoteBridge]; return; }
+    if (![remoteBridge.bundle isEqualToString:pinnedBundleId]) {
+        [self stopRemoteBridge];
+        __weak typeof(self) weakSelf = self;
+        if (![remoteBridge startForBundle:pinnedBundleId handler:^(PORemoteTransform event) {
+            [weakSelf handleRemoteTransform:event];
+        }]) return;
+    }
+    [self publishRemoteGeometry];
+}
+
+-(void)handleRemoteTransform:(PORemoteTransform)event {
+    if (!autoDirectGestures || transformEnabled || ![self canTransformHostedScene] ||
+        ![remoteBridge.bundle isEqualToString:pinnedBundleId] ||
+        [[POApplicationHelper frontMostBundleId] isEqualToString:pinnedBundleId]) return;
+    if (!event.phase) { [self updateTransformStatus]; return; }
+    if (!event.gesture || activeTransformGesture || !isfinite(event.ratio)) return;
+    if (lastRemoteGesture != event.gesture) {
+        lastRemoteGesture = event.gesture;
+        remoteGestureActive = YES;
+        remoteStartScale = userScale;
+        remoteStartOffset = userOffset;
+        remoteFiltered = (POStableSample){1,0,0};
+        remoteLastEvent = 0;
+    }
+    if (!remoteGestureActive) return;
+    CFTimeInterval now = CACurrentMediaTime();
+    double dt = remoteLastEvent > 0 ? now-remoteLastEvent : 1.0/30.0;
+    remoteLastEvent = now;
+    POStableSample target = {event.ratio,event.dx,event.dy};
+    if (remoteDeferred && event.phase != 3) return;
+    // A release-only fallback eliminates visual-transform feedback completely.
+    // Live mode damps the input and does not jump to a noisy final sample.
+    if (remoteDeferred) remoteFiltered = target;
+    else if (event.phase != 3) remoteFiltered = POFilterGesture(remoteFiltered,target,dt);
+    userScale = POTransformScale(remoteStartScale * remoteFiltered.ratio);
+    CGFloat ratio = userScale/MAX(0.001,remoteStartScale);
+    CGPoint pivot = CGPointMake(CGRectGetMidX(self.contentView.bounds),CGRectGetMidY(self.contentView.bounds));
+    POPoint center = POTransformCenter((POPoint){contextBaseCenter.x+remoteStartOffset.x,contextBaseCenter.y+remoteStartOffset.y},
+        (POPoint){pivot.x,pivot.y},(POPoint){remoteFiltered.dx,remoteFiltered.dy},ratio);
+    userOffset = CGPointMake(center.x-contextBaseCenter.x,center.y-contextBaseCenter.y);
+    [self applyContextTransform];
+    if (event.phase==3) {
+        remoteGestureActive=NO;
+        [self saveAppTransform];
+        [self publishRemoteGeometry];
+    }
+}
+
+-(void)cancelTransformGestures {
+    [self stopRemoteBridge];
+    transformGestureRecognizer.enabled = NO;
+    directGestureRecognizer.enabled = NO;
+    barGestureRecognizer.enabled = NO;
+    barPan.enabled = NO;
+    activeTransformGesture = nil;
+}
+
+-(BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)gestureRecognizer{
+    if (gestureRecognizer == transformGestureRecognizer || gestureRecognizer == directGestureRecognizer ||
+        gestureRecognizer == barGestureRecognizer || gestureRecognizer == barPan) {
+        if (remoteGestureActive && CACurrentMediaTime()-remoteLastEvent>1.0) remoteGestureActive=NO;
+        if (![self canTransformHostedScene] || remoteGestureActive || (activeTransformGesture && activeTransformGesture != gestureRecognizer)) return NO;
+        if (gestureRecognizer == directGestureRecognizer) return autoDirectGestures && !transformEnabled;
+        if (gestureRecognizer == transformGestureRecognizer) return transformEnabled;
+        return showGestureBar && !self.gestureBar.hidden;
+    }
+    return YES;
+}
+
+-(void)toggleTransformMode {
+    [self setTransformEditing:!transformEnabled];
+}
+
+-(void)setTransformEditing:(BOOL)enabled {
+    if (enabled) [self hideFloatingKeyboard];
+    if (enabled && (!self.isOpened || !presentationAllowed || isInvalidated || !contextView ||
+        ![[ContextHostManager sharedInstance] isHostViewHosting:contextView])) return;
+    [self cancelTransformGestures];
+    if (enabled && !transformEnabled) {
+        [self.expandedSwitchMenu cancelPresentation];
+        hostWasInteractive = contextView.userInteractionEnabled;
+        hostInteractionSaved = YES;
+        contextView.userInteractionEnabled = NO;
+    } else if (!enabled && hostInteractionSaved) {
+        contextView.userInteractionEnabled = hostWasInteractive;
+        hostInteractionSaved = NO;
+    }
+    transformEnabled = enabled;
+    toolsVisible = enabled;
+    if (!enabled && contextView) [self saveAppTransform];
+    [self updateDrawerControls];
+    POLog(@"local transform edit=%d", enabled);
+}
+
+-(void)updateTransformStatus {
+    transformStatus.text = [NSString stringWithFormat:@"%.0f%%  ·  双指缩放／拖动", userScale * 100];
+    gestureBarLabel.text = [NSString stringWithFormat:@"%@  %.0f%%", remoteBridge.ready ? (remoteDeferred ? @"松手应用 · 已连接" : @"手势通道已连接") : @"↔  双指缩放／拖动", userScale * 100];
+    minusButton.enabled = userScale > 0.5001;
+    plusButton.enabled = userScale < 2.9999;
+}
+
+-(void)changeZoomBy:(CGFloat)factor {
+    if (!transformEnabled || !contextView) return;
+    [self cancelTransformGestures];
+    CGFloat oldScale = MAX(0.001, userScale);
+    userScale = POTransformScale(oldScale * factor);
+    CGFloat ratio = userScale / oldScale;
+    CGPoint pivot = CGPointMake(CGRectGetMidX(self.contentView.bounds), CGRectGetMidY(self.contentView.bounds));
+    POPoint center = POTransformCenter((POPoint){contextBaseCenter.x+userOffset.x,contextBaseCenter.y+userOffset.y},
+        (POPoint){pivot.x,pivot.y}, (POPoint){0,0}, ratio);
+    userOffset = CGPointMake(center.x-contextBaseCenter.x,center.y-contextBaseCenter.y);
+    [self applyContextTransform];
+    [self saveAppTransform];
+    [self updateTransformGestureAvailability];
+}
+-(void)zoomInStep { [self changeZoomBy:1.25]; }
+-(void)zoomOutStep { [self changeZoomBy:0.8]; }
+
+-(void)handleLocalPan:(UIPanGestureRecognizer *)recognizer {
+    BOOL isBar = recognizer == barPan;
+    if (![self canTransformHostedScene] || (!isBar && !transformEnabled)) return;
+    UIGestureRecognizerState state = recognizer.state;
+    if (state == UIGestureRecognizerStateBegan) {
+        if (activeTransformGesture && activeTransformGesture != recognizer) return;
+        activeTransformGesture = recognizer;
+    }
+    if (activeTransformGesture != recognizer) return;
+    if (state == UIGestureRecognizerStateBegan || state == UIGestureRecognizerStateChanged) {
+        CGPoint delta = [recognizer translationInView:self.contentView];
+        userOffset = CGPointMake(userOffset.x+delta.x,userOffset.y+delta.y);
+        [recognizer setTranslation:CGPointZero inView:self.contentView];
+        [self applyContextTransform];
+    } else if (state == UIGestureRecognizerStateEnded || state == UIGestureRecognizerStateCancelled || state == UIGestureRecognizerStateFailed) {
+        activeTransformGesture = nil;
+        [self saveAppTransform];
+    }
+}
+
+-(void)resetContextTransform {
+    [self cancelTransformGestures];
+    userScale = 1;
+    userOffset = CGPointZero;
+    if (contextView) [self applyContextTransform];
+    [self updateTransformGestureAvailability];
+    [self saveAppTransform];
+}
+
+-(void)saveAppTransform {
+    if (!pinnedBundleId.length) return;
+    if (appTransforms.count >= 32 && !appTransforms[pinnedBundleId]) {
+        NSString *key = appTransforms.allKeys.firstObject;
+        if (key) [appTransforms removeObjectForKey:key];
+    }
+    appTransforms[pinnedBundleId] = @{@"scale": @(userScale),
+        @"x": @(userOffset.x / MAX(1, transformViewport.width)),
+        @"y": @(userOffset.y / MAX(1, transformViewport.height))};
+}
+
+-(void)restoreAppTransform:(NSString *)bundleId {
+    NSDictionary *saved = appTransforms[bundleId];
+    userScale = saved ? POTransformScale([saved[@"scale"] doubleValue]) : 1;
+    userOffset = CGPointMake([saved[@"x"] doubleValue] * MAX(1, transformViewport.width),
+                             [saved[@"y"] doubleValue] * MAX(1, transformViewport.height));
+}
+
+-(void)handleTwoFingerTransform:(POTwoFingerTransformGestureRecognizer *)recognizer {
+    UIGestureRecognizerState state = recognizer.state;
+    if (state == UIGestureRecognizerStateEnded || state == UIGestureRecognizerStateCancelled || state == UIGestureRecognizerStateFailed) {
+        if (activeTransformGesture == recognizer) {
+            activeTransformGesture = nil;
+            if (contextView) [self saveAppTransform];
+        }
+        return;
+    }
+    if (![self canTransformHostedScene]) return;
+    if (state == UIGestureRecognizerStateBegan) {
+        if (activeTransformGesture && activeTransformGesture != recognizer) return;
+        activeTransformGesture = recognizer;
+        gestureStartScale = userScale;
+        gestureStartOffset = userOffset;
+        POLog(@"two-finger began source=%@", recognizer == directGestureRecognizer ? @"host" : recognizer == barGestureRecognizer ? @"bar" : @"edit");
+    } else if (state != UIGestureRecognizerStateChanged || activeTransformGesture != recognizer) {
+        return;
+    }
+    userScale = POTransformScale(gestureStartScale * recognizer.scaleFactor);
+    CGFloat ratio = userScale / MAX(0.001, gestureStartScale);
+    CGPoint pivot = recognizer.initialCenter, delta = recognizer.translation;
+    // The grip is outside the content; zoom around the viewport center instead.
+    if (recognizer == barGestureRecognizer) pivot = CGPointMake(CGRectGetMidX(self.contentView.bounds), CGRectGetMidY(self.contentView.bounds));
+    POPoint center = POTransformCenter((POPoint){contextBaseCenter.x + gestureStartOffset.x, contextBaseCenter.y + gestureStartOffset.y},
+                                      (POPoint){pivot.x,pivot.y}, (POPoint){delta.x,delta.y}, ratio);
+    userOffset = CGPointMake(center.x-contextBaseCenter.x,center.y-contextBaseCenter.y);
+    [self applyContextTransform];
+}
+
+-(CGPoint)clampedContextOffset:(CGPoint)offset {
+    if (!contextView || !self.contentView) return offset;
+    CGFloat effectiveScale = contextBaseScale * userScale;
+    CGFloat w = CGRectGetWidth(contextView.bounds) * effectiveScale;
+    CGFloat h = CGRectGetHeight(contextView.bounds) * effectiveScale;
+    CGSize panel = self.contentView.bounds.size;
+    return CGPointMake(POClampCenter(contextBaseCenter.x + offset.x, panel.width, w)-contextBaseCenter.x,
+                       POClampCenter(contextBaseCenter.y + offset.y, panel.height, h)-contextBaseCenter.y);
+}
+
+-(void)applyContextTransform{
+    if (!contextView || !self.contentView) return;
+    userOffset = [self clampedContextOffset:userOffset];
+    CGPoint targetCenter = CGPointMake(contextBaseCenter.x + userOffset.x, contextBaseCenter.y + userOffset.y);
+    CGFloat effectiveScale = MAX(0.01, contextBaseScale * userScale);
+    CGAffineTransform transform = CGAffineTransformMakeScale(effectiveScale, effectiveScale);
+    if ([[POApplicationHelper settings][@"leftHanded"] boolValue]) {
+        transform = CGAffineTransformConcat(transform, CGAffineTransformMakeScale(-1.0, 1.0));
+    }
+    // Commit center and scale together, with no inherited UIView or CA animations.
+    [UIView performWithoutAnimation:^{
+        [CATransaction begin];
+        [CATransaction setDisableActions:YES];
+        if (!CGPointEqualToPoint(contextView.center,targetCenter)) contextView.center=targetCenter;
+        if (!CGAffineTransformEqualToTransform(contextView.transform,transform)) contextView.transform=transform;
+        [CATransaction commit];
+    }];
+    [self publishRemoteGeometry];
+    [self updateTransformStatus];
 }
 
 -(void)keyboardWillShow:(NSNotification *)notification{
@@ -403,7 +955,11 @@
         [self retryHostingIfNeeded];
         return;
     }
+    BOOL changedApp = ![pinnedBundleId isEqualToString:bundleId];
+    if (changedApp) {[self hideFloatingKeyboard];toolsVisible=NO;}
+    if (changedApp) [self saveAppTransform];
     if (self.isOpened) [self endHosting];
+    if (changedApp) [self restoreAppTransform:bundleId];
     pinnedBundleId = bundleId;
     NSUInteger generation = ++pinGeneration;
     
@@ -437,9 +993,13 @@
 }
 
 -(void)close{
+    toolsVisible=NO;
+    [self hideFloatingKeyboard];
+    [keyboardComposer dismiss];
     pinGeneration++;
     [self.quickSwitchTableView cancelPresentation];
     [self.expandedSwitchMenu cancelPresentation];
+    if (transformEnabled) [self setTransformEditing:NO];
     [scrollView setContentOffset:CGPointZero animated:YES];
 }
 
@@ -463,7 +1023,7 @@
 
 -(void)handle:(POHandle *)handle didLongPress:(UILongPressGestureRecognizer *)recognizer{
     if (presentationAllowed && self.isOpened) {
-        if (recognizer.state == UIGestureRecognizerStateBegan) [self toggleExpandedSwitchMenu];
+        if (recognizer.state == UIGestureRecognizerStateBegan) [self toggleTools];
         return;
     }
     if (presentationAllowed && !self.isOpened) {
@@ -593,6 +1153,7 @@
 }
 
 -(void)quickSwitchTableViewDidDisappear:(QuickSwitchTableView *)quickSwitchTableView{
+    [self updateDrawerControls];
     [self removeDraggableImageViewAnimated];
     dragAndDropView.alpha = 0;
     dragAndDropLabel.alpha = 0;
@@ -724,24 +1285,36 @@
     fitScale = MAX(0.01, fitScale);
 
     if (newlyAttached) [self.contentView addSubview:contextView];
+    if (directGestureRecognizer.view != contextView) {
+        [directGestureRecognizer.view removeGestureRecognizer:directGestureRecognizer];
+        [contextView addGestureRecognizer:directGestureRecognizer];
+    }
     contextView.transform = CGAffineTransformIdentity;
     contextView.bounds = CGRectMake(0, 0, sourceSize.width, sourceSize.height);
     CGFloat centerY = CGRectGetMidY(self.contentView.bounds);
     if (inputZoom && sourceSize.height * fitScale > CGRectGetHeight(self.contentView.bounds)) {
         centerY = CGRectGetHeight(self.contentView.bounds) - sourceSize.height * fitScale / 2;
     }
-    contextView.center = CGPointMake(CGRectGetMidX(self.contentView.bounds), centerY);
-    CGAffineTransform transform = CGAffineTransformMakeScale(fitScale, fitScale);
-    if ([[POApplicationHelper settings][@"leftHanded"] boolValue]) {
-        transform = CGAffineTransformConcat(transform, CGAffineTransformMakeScale(-1.0, 1.0));
+    CGSize viewport = self.contentView.bounds.size;
+    if (transformViewport.width > 0 && transformViewport.height > 0 &&
+        !CGSizeEqualToSize(transformViewport, viewport)) {
+        [self cancelTransformGestures];
+        userOffset = CGPointMake(userOffset.x * viewport.width / transformViewport.width,
+                                 userOffset.y * viewport.height / transformViewport.height);
     }
-    contextView.transform = transform;
+    transformViewport = viewport;
+    contextBaseScale = fitScale;
+    contextBaseCenter = CGPointMake(CGRectGetMidX(self.contentView.bounds), centerY);
+    [self applyContextTransform];
+    contextView.multipleTouchEnabled = YES;
+    contextView.exclusiveTouch = NO;
     if (newlyAttached) {
         contextView.alpha = 0;
         [UIView animateWithDuration:0.25 animations:^{ contextView.alpha = 1; }];
     } else {
         contextView.alpha = 1;
     }
+    [self updateDrawerControls];
 }
 
 -(void)attemptHostingForGeneration:(NSUInteger)generation{
@@ -797,6 +1370,13 @@
 }
 
 -(void)endHosting{
+    toolsVisible=NO;
+    [self hideFloatingKeyboard];
+    [keyboardComposer dismiss];
+    if (transformEnabled || hostInteractionSaved) [self setTransformEditing:NO];
+    [self cancelTransformGestures];
+    [directGestureRecognizer.view removeGestureRecognizer:directGestureRecognizer];
+    if (contextView) [self saveAppTransform];
     hostingGeneration++;
     hostingInProgress = NO;
     launchRequested = NO;
@@ -810,6 +1390,7 @@
         [v removeFromSuperview];
     }
     contextView = nil;
+    [self updateDrawerControls];
     showingCantHost = NO;
 }
 

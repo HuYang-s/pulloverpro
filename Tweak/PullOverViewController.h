@@ -39,6 +39,9 @@
 @property (nonatomic, strong) QuickSwitchTableView *quickSwitchTableView;
 @property (nonatomic, strong, readonly) QuickSwitchTableView *expandedSwitchMenu;
 @property (nonatomic, strong, readonly) UIView *drawerControls;
+@property (nonatomic, strong, readonly) UIView *transformSurface;
+@property (nonatomic, strong, readonly) UIView *gestureBar;
+@property (nonatomic, strong, readonly) UIView *floatingKeyboard;
 
 
 @end

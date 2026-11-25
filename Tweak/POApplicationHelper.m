@@ -106,6 +106,9 @@ static NSDictionary *POCachedSettings;
         @"enabled": @YES,
         @"hideInLandscape": @NO,
         @"landscapeTouchThrough": @YES,
+        @"directTwoFinger": @YES,
+        @"deferredTwoFinger": @NO,
+        @"gestureBar": @YES,
         @"favorites": @[],
         @"recentAppsCount": @5,
         @"quickswitchScale": @1.75f,
@@ -139,7 +142,7 @@ static NSDictionary *POCachedSettings;
             }
 
             NSDictionary *defaults = [self defaultSettings];
-            NSArray *booleanKeys = @[@"enabled", @"hideInLandscape", @"landscapeTouchThrough", @"leftHanded", @"darkHandle",
+            NSArray *booleanKeys = @[@"enabled", @"hideInLandscape", @"landscapeTouchThrough", @"directTwoFinger", @"deferredTwoFinger", @"gestureBar", @"leftHanded", @"darkHandle",
                                      @"hideLabels", @"hapticFeedback", @"closeOnHome", @"hideHandle",
                                      @"keyboardAvoiding", @"externalKeyboard", @"autoNub"];
             for (NSString *key in booleanKeys) {

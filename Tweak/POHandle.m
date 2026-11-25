@@ -24,7 +24,7 @@
     if (self = [super initWithFrame:CGRectMake(0, 0, 80, 34)]) {
         self.isAccessibilityElement = YES;
         self.accessibilityLabel = @"PullOver Pro 浮窗手柄";
-        self.accessibilityHint = @"轻点打开或关闭浮窗，长按快速切换应用";
+        self.accessibilityHint = @"轻点打开或关闭浮窗，打开后长按显示工具";
         self.accessibilityTraits = UIAccessibilityTraitButton;
         self.backgroundColor = [UIColor colorWithWhite:1 alpha:0.1];
         self.layer.cornerRadius = self.frame.size.height/2;
